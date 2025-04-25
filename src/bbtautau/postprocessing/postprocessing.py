@@ -8,18 +8,22 @@ from __future__ import annotations
 
 import copy
 import pickle
+import warnings
 from pathlib import Path
 
+import hist
 import numpy as np
 import pandas as pd
-import plotting
-import Samples
-import utils as putils
 from boostedhh import utils
+from boostedhh.hh_vars import data_key
 from boostedhh.utils import Sample, ShapeVar
+from hist import Hist
 
+import bbtautau.postprocessing.utils as putils
 from bbtautau.bbtautau_utils import Channel
 from bbtautau.HLTs import HLTs
+from bbtautau.postprocessing import Regions, Samples, plotting
+from bbtautau.postprocessing.utils import LoadedSample
 
 base_filters = [
     ("('ak8FatJetPt', '0')", ">=", 250),
@@ -119,11 +123,22 @@ control_plot_vars = (
     + [ShapeVar(var="nBoostedTaus", label=r"Number of Boosted Taus", bins=[3, 0, 3])]
 )
 
+# fitting on bb regressed mass
+shape_vars = [
+    ShapeVar(
+        "bbFatJetPNetmassLegacy",
+        r"$m^{bb}_\mathrm{Reg}$ [GeV]",
+        [16, 60, 220],
+        reg=True,
+        blind_window=[110, 140],
+    )
+]
 
-def bb_filters(num_fatjets: int = 3):
+
+def bb_filters(num_fatjets: int = 3, bb_cut: float = 0.3):
     filters = [
         # roughly, 85% signal efficiency, 2% QCD efficiency (pT: 250-400, mSD:0-250, mRegLegacy:40-250)
-        base_filters + [(f"('ak8FatJetPNetXbbLegacy', '{n}')", ">=", 0.3)]
+        base_filters + [(f"('ak8FatJetPNetXbbLegacy', '{n}')", ">=", bb_cut)]
         for n in range(num_fatjets)
     ]
     return filters
@@ -213,7 +228,14 @@ def load_samples(
     load_bgs: bool = False,
     load_data: bool = True,
     load_just_bbtt: bool = False,
-):
+    loaded_samples: bool = False,
+) -> dict[str, LoadedSample | pd.DataFrame]:
+    if not loaded_samples:
+        warnings.warn(
+            "Deprecation warning: Should switch to using the LoadedSample class in the future, by setting loaded_samples=True!",
+            stacklevel=1,
+        )
+
     events_dict = {}
 
     samples = Samples.SAMPLES.copy()
@@ -241,25 +263,39 @@ def load_samples(
             filters = filters_dict
 
         if sample.selector is not None:
-            events_dict[key] = utils.load_sample(
+            events = utils.load_sample(
                 sample,
                 year,
                 paths,
                 filters,
             )
 
+            if not loaded_samples:
+                events_dict[key] = events
+            else:
+                events_dict[key] = LoadedSample(sample=sample, events=events)
+
     # keep only the specified bbtt channel
     for signal in signals:
-        # quick fix due to old naming still in samples
-        events_dict[f"{signal}{channel.key}"] = events_dict[signal][
-            events_dict[signal][f"GenTau{channel.key}"][0]
-        ]
-        del events_dict[signal]
+        if not loaded_samples:
+            # quick fix due to old naming still in samples
+            events_dict[f"{signal}{channel.key}"] = events_dict[signal][
+                events_dict[signal][f"GenTau{channel.key}" + "u" * (channel.key == "hm")][0]
+            ]
+            del events_dict[signal]
+        else:
+            events_dict[f"{signal}{channel.key}"] = LoadedSample(
+                sample=Samples.SAMPLES[f"{signal}{channel.key}"],
+                events=events_dict[signal].events[
+                    events_dict[signal].get_var(f"GenTau{channel.key}")
+                ],
+            )
+            del events_dict[signal]
 
     return events_dict
 
 
-def apply_triggers_data(events_dict: dict[str, pd.DataFrame], year: str, channel: Channel):
+def apply_triggers_data_old(events_dict: dict[str, pd.DataFrame], year: str, channel: Channel):
     """Apply triggers to data and remove overlap between datasets due to multiple triggers fired in an event."""
     ldataset = channel.lepton_dataset
 
@@ -310,13 +346,15 @@ def apply_triggers_data(events_dict: dict[str, pd.DataFrame], year: str, channel
     return events_dict
 
 
-def apply_triggers(
+def apply_triggers_old(
     events_dict: dict[str, pd.DataFrame],
     year: str,
     channel: Channel,
 ):
-    """Apply triggers in MC and data, and remove overlap between datasets."""
-    # MC
+    """Apply triggers in MC and data, and remove overlap between datasets, for old version of events_dict.
+
+    Deprecation warning: Should switch to using the LoadedSample class in the future!
+    """
     for skey, events in events_dict.items():
         if not Samples.SAMPLES[skey].isData:
             triggered = np.sum(
@@ -325,6 +363,89 @@ def apply_triggers(
             events_dict[skey] = events[triggered]
 
     if any(Samples.SAMPLES[skey].isData for skey in events_dict):
+        apply_triggers_data_old(events_dict, year, channel)
+
+    return events_dict
+
+
+def apply_triggers_data(events_dict: dict[str, LoadedSample], year: str, channel: Channel):
+    """Apply triggers to data and remove overlap between datasets due to multiple triggers fired in an event."""
+    ldataset = channel.lepton_dataset
+
+    # storing triggers fired per dataset
+    trigdict = {"jetmet": {}, "tau": {}}
+    if channel.isLepton:
+        trigdict[ldataset] = {}
+        lepton_triggers = utils.list_intersection(
+            channel.lepton_triggers(year), channel.triggers(year, data_only=True)
+        )
+
+    # JetMET triggers considered in this channel
+    jet_triggers = utils.list_intersection(
+        HLTs.hlts_by_dataset(year, "JetMET", data_only=True), channel.triggers(year, data_only=True)
+    )
+
+    # Tau triggers considered in this channel
+    tau_triggers = utils.list_intersection(
+        HLTs.hlts_by_dataset(year, "Tau", data_only=True), channel.triggers(year, data_only=True)
+    )
+
+    for key, d in trigdict.items():
+        d["jets"] = np.sum([events_dict[key].get_var(hlt) for hlt in jet_triggers], axis=0).astype(
+            bool
+        )
+        if key == "jetmet":
+            continue
+
+        d["taus"] = np.sum([events_dict[key].get_var(hlt) for hlt in tau_triggers], axis=0).astype(
+            bool
+        )
+        d["taunojets"] = ~d["jets"] & d["taus"]
+
+        if key == "tau":
+            continue
+
+        if channel.isLepton:
+            d[ldataset] = np.sum(
+                [events_dict[key].get_var(hlt) for hlt in lepton_triggers], axis=0
+            ).astype(bool)
+
+            d[f"{ldataset}noothers"] = ~d["jets"] & ~d["taus"] & d[ldataset]
+
+            events_dict[ldataset].apply_selection(trigdict[ldataset][f"{ldataset}noothers"])
+
+    # remove overlap
+    # print(trigdict["jetmet"])
+
+    events_dict["jetmet"].apply_selection(trigdict["jetmet"]["jets"])
+    events_dict["tau"].apply_selection(trigdict["tau"]["taunojets"])
+
+    return events_dict
+
+
+def apply_triggers(
+    events_dict: dict[str, pd.DataFrame | LoadedSample],
+    year: str,
+    channel: Channel,
+):
+    """Apply triggers in MC and data, and remove overlap between datasets."""
+
+    if not isinstance(next(iter(events_dict.values())), LoadedSample):
+        warnings.warn(
+            "Deprecation warning: Should switch to using the LoadedSample class in the future!",
+            stacklevel=1,
+        )
+        return apply_triggers_old(events_dict, year, channel)
+
+    # MC
+    for _skey, sample in events_dict.items():
+        if not sample.sample.isData:
+            triggered = np.sum(
+                [sample.get_var(hlt) for hlt in channel.triggers(year, mc_only=True)], axis=0
+            ).astype(bool)
+            sample.events = sample.events[triggered]
+
+    if any(sample.sample.isData for sample in events_dict.values()):
         apply_triggers_data(events_dict, year, channel)
 
     return events_dict
@@ -346,8 +467,11 @@ def delete_columns(
     return events_dict
 
 
-def bbtautau_assignment(events_dict: dict[str, pd.DataFrame], channel: Channel):
-    """Assign bb and tautau jets per each event."""
+def bbtautau_assignment_old(events_dict: dict[str, pd.DataFrame], channel: Channel):
+    """Assign bb and tautau jets per each event.
+
+    Deprecation warning: Should switch to using the LoadedSample class in the future!
+    """
     bbtt_masks = {}
     for sample_key, sample_events in events_dict.items():
         print(sample_key)
@@ -372,6 +496,41 @@ def bbtautau_assignment(events_dict: dict[str, pd.DataFrame], channel: Channel):
         bbtt_masks[sample_key]["tt"][range(len(tautau_pick)), tautau_pick] = True
 
     return bbtt_masks
+
+
+def bbtautau_assignment(events_dict: dict[str, pd.DataFrame | LoadedSample], channel: Channel):
+    """Assign bb and tautau jets per each event."""
+
+    if not isinstance(next(iter(events_dict.values())), LoadedSample):
+        warnings.warn(
+            "Deprecation warning: Should switch to using the LoadedSample class in the future!",
+            stacklevel=1,
+        )
+        return bbtautau_assignment_old(events_dict, channel)
+
+    for _skey, sample in events_dict.items():
+        bbtt_masks = {
+            "bb": np.zeros_like(sample.get_var("ak8FatJetPt"), dtype=bool),
+            "tt": np.zeros_like(sample.get_var("ak8FatJetPt"), dtype=bool),
+        }
+
+        # assign tautau jet as the one with the highest ParTtautauvsQCD score
+        tautau_pick = np.argmax(
+            sample.get_var(f"ak8FatJetParTX{channel.tagger_label}vsQCD"), axis=1
+        )
+
+        # assign bb jet as the one with the highest ParTXbbvsQCD score, but prioritize tautau
+        bb_sorted = np.argsort(sample.get_var("ak8FatJetParTXbbvsQCD"), axis=1)
+        bb_highest = bb_sorted[:, -1]
+        bb_second_highest = bb_sorted[:, -2]
+        bb_pick = np.where(bb_highest == tautau_pick, bb_second_highest, bb_highest)
+
+        # now convert into boolean masks
+        bbtt_masks["bb"][range(len(bb_pick)), bb_pick] = True
+        bbtt_masks["tt"][range(len(tautau_pick)), tautau_pick] = True
+
+        sample.bb_mask = bbtt_masks["bb"]
+        sample.tt_mask = bbtt_masks["tt"]
 
 
 def control_plots(
@@ -426,9 +585,9 @@ def control_plots(
         if shape_var.var not in hists:
             hists[shape_var.var] = putils.singleVarHist(
                 events_dict,
-                bbtt_masks,
                 shape_var,
                 channel,
+                bbtt_masks=bbtt_masks,
                 weight_key=weight_key,
                 selection=selection,
             )
@@ -479,3 +638,305 @@ def control_plots(
         merger_control_plots.close()
 
     return hists
+
+
+def get_templates(
+    events_dict: dict[str, LoadedSample],
+    year: str,
+    sig_keys: list[str],
+    bg_keys: list[str],
+    channel: Channel,
+    shape_vars: list[ShapeVar],
+    systematics: dict,  # noqa: ARG001
+    template_dir: Path = "",
+    plot_dir: Path = "",
+    prev_cutflow: pd.DataFrame = None,
+    weight_key: str = "finalWeight",
+    plot_sig_keys: list[str] = None,
+    sig_scale_dict: dict = None,
+    weight_shifts: dict = None,
+    jshift: str = "",
+    plot_shifts: bool = False,
+    pass_ylim: int = None,
+    fail_ylim: int = None,
+    blind: bool = True,
+    blind_pass: bool = False,
+    plot_data: bool = True,
+    show: bool = False,
+) -> dict[str, Hist]:
+    """
+    (1) Makes histograms for each region in the ``selection_regions`` dictionary,
+    (2) TODO: Applies the Txbb scale factor in the pass region,
+    (3) TODO: Calculates trigger uncertainty,
+    (4) TODO: Calculates weight variations if ``weight_shifts`` is not empty (and ``jshift`` is ""),
+    (5) TODO: Takes JEC / JSMR shift into account if ``jshift`` is not empty,
+    (6) Saves a plot of each (if ``plot_dir`` is not "").
+
+    Args:
+        selection_region (Dict[str, Dict]): Dictionary of ``Region``s including cuts and labels.
+        bg_keys (list[str]): background keys to plot.
+
+    Returns:
+        Dict[str, Hist]: dictionary of templates, saved as hist.Hist objects.
+
+    """
+    import time
+
+    start = time.time()
+
+    if weight_shifts is None:
+        weight_shifts = {}
+
+    do_jshift = jshift != ""
+    jlabel = "" if not do_jshift else "_" + jshift
+    templates = {}
+
+    # do TXbb SFs + uncs. for signals and Hbb samples only
+    # txbb_samples = sig_keys + [key for key in bg_keys if key in hbb_bg_keys]
+
+    selection_regions = Regions.get_selection_regions(channel)
+
+    for rname, region in selection_regions.items():
+        pass_region = rname.startswith("pass")
+
+        print(f"{rname} Region: {time.time() - start:.2f}")
+
+        if not do_jshift:
+            print(rname)
+
+        # make selection, taking JEC/JMC variations into account
+        sel, cf = utils.make_selection(
+            region.cuts,
+            events_dict,
+            prev_cutflow=prev_cutflow,
+            jshift=jshift,
+            weight_key=weight_key,
+        )
+        print(f"Selection: {time.time() - start:.2f}")
+
+        if template_dir != "":
+            cf.to_csv(f"{template_dir}/cutflows/{year}/{rname}_cutflow{jlabel}.csv")
+
+        # trigger uncertainties
+        # if not do_jshift:
+        #     systematics[year][rname] = {}
+        #     total, total_err = corrections.get_uncorr_trig_eff_unc(events_dict, bb_masks, year, sel)
+        #     systematics[year][rname]["trig_total"] = total
+        #     systematics[year][rname]["trig_total_err"] = total_err
+        #     print(f"Trigger SF Unc.: {total_err / total:.3f}\n")
+
+        # ParticleNetMD Txbb and ParT LP SFs
+        sig_events = {}
+        for sig_key in sig_keys:
+            lsample = events_dict[sig_key]
+            sig_events[sig_key] = lsample.copy_from_selection(sel[sig_key], do_deepcopy=True)
+
+            # if region.signal:
+            #     corrections.apply_txbb_sfs(
+            #         sig_events[sig_key], sig_bb_mask, year, weight_key, do_shifts=not do_jshift
+            #     )
+
+            #     print(f"Txbb SFs: {time.time() - start:.2f}")
+
+        # set up samples
+        hist_samples = list(events_dict.keys())
+
+        # if not do_jshift:
+        #     # add all weight-based variations to histogram axis
+        #     for shift in ["down", "up"]:
+        #         if region.signal:
+        #             for sig_key in sig_keys:
+        #                 hist_samples.append(f"{sig_key}_txbb_{shift}")
+
+        #         for wshift, wsyst in weight_shifts.items():
+        #             # if year in wsyst.years:
+        #             # add to the axis even if not applied to this year to make it easier to sum later
+        #             for wsample in wsyst.samples:
+        #                 if wsample in events_dict:
+        #                     hist_samples.append(f"{wsample}_{wshift}_{shift}")
+
+        # histograms
+        h = Hist(
+            hist.axis.StrCategory(hist_samples + [data_key], name="Sample"),
+            *[shape_var.axis for shape_var in shape_vars],
+            storage="weight",
+        )
+
+        # fill histograms
+        for skey, lsample in events_dict.items():
+            if skey in sig_keys:
+                sample = sig_events[skey]
+            else:
+                sample = lsample.copy_from_selection(sel[skey])
+
+            if not len(sample.events):
+                continue
+
+            fill_data = utils.get_fill_data(
+                sample, shape_vars, jshift=jshift if sample.sample.isData else None
+            )
+            weight = sample.get_var(weight_key)
+
+            # breakpoint()
+            h.fill(Sample=skey, **fill_data, weight=weight)
+
+            if not do_jshift:
+                # add weight variations
+                for wshift, wsyst in weight_shifts.items():
+                    if skey in wsyst.samples and year in wsyst.years:
+                        if wshift not in ["scale", "pdf"]:
+                            # fill histogram with weight variations
+                            for shift_key, shift in [("Down", "down"), ("Up", "up")]:
+                                h.fill(
+                                    Sample=f"{skey}_{wshift}_{shift}",
+                                    **fill_data,
+                                    weight=sample.get_var(f"weight_{wshift}{shift_key}"),
+                                )
+                        else:
+                            # get histograms for all QCD scale and PDF variations
+                            whists = utils.get_qcdvar_hists(sample, shape_vars, fill_data, wshift)
+
+                            if wshift == "scale":
+                                # renormalization / factorization scale uncertainty is the max/min envelope of the variations
+                                shape_up = np.max(whists.values(), axis=0)
+                                shape_down = np.min(whists.values(), axis=0)
+                            else:
+                                # pdf uncertainty is the norm of each variation (corresponding to 103 eigenvectors) - nominal
+                                nom_vals = h[sample, ...].values()
+                                abs_unc = np.linalg.norm(
+                                    (whists.values() - nom_vals), axis=0
+                                )  # / np.sqrt(103)
+                                # cap at 100% uncertainty
+                                rel_unc = np.clip(abs_unc / nom_vals, 0, 1)
+                                shape_up = nom_vals * (1 + rel_unc)
+                                shape_down = nom_vals * (1 - rel_unc)
+
+                            h.values()[
+                                utils.get_key_index(h, f"{skey}_{wshift}_up"), ...
+                            ] = shape_up
+                            h.values()[
+                                utils.get_key_index(h, f"{skey}_{wshift}_down"), ...
+                            ] = shape_down
+
+        print(f"Histograms: {time.time() - start:.2f}")
+
+        # sum data histograms
+        data_hist = sum(h[skey, ...] for skey in channel.data_samples)
+        h.view(flow=True)[utils.get_key_index(h, data_key)].value = data_hist.values(flow=True)
+        h.view(flow=True)[utils.get_key_index(h, data_key)].variance = data_hist.variances(
+            flow=True
+        )
+
+        print(h)
+
+        if region.signal and blind:
+            # blind signal mass windows in pass region in data
+            for i, shape_var in enumerate(shape_vars):
+                if shape_var.blind_window is not None:
+                    utils.blindBins(h, shape_var.blind_window, data_key, axis=i)
+
+        # if region.signal and not do_jshift:
+        #     for sig_key in sig_keys:
+        #         if not len(sig_events[sig_key].events):
+        #             continue
+
+        #         # ParticleNetMD Txbb SFs
+        #         fill_data = utils.get_fill_data(sig_events[sig_key], shape_vars)
+        #         for shift in ["down", "up"]:
+        #             h.fill(
+        #                 Sample=f"{sig_key}_txbb_{shift}",
+        #                 **fill_data,
+        #                 weight=sig_events[sig_key].get_var(f"{weight_key}_txbb_{shift}"),
+        #             )
+
+        templates[rname + jlabel] = h
+
+        ################################
+        # Plot templates incl variations
+        ################################
+
+        if plot_dir != "" and (not do_jshift or plot_shifts):
+            print(f"Plotting templates: {time.time() - start:.2f}")
+            if plot_sig_keys is None:
+                plot_sig_keys = sig_keys
+
+            if sig_scale_dict is None:
+                sig_scale_dict = {skey: 10 for skey in plot_sig_keys}
+
+            title = (
+                f"{region.label} Region Pre-Fit Shapes"
+                if not do_jshift
+                else f"{region.label} Region {jshift} Shapes"
+            )
+
+            # don't plot qcd in the pass regions
+            # if pass_region:
+            #     p_bg_keys = [key for key in bg_keys if key != qcd_key]
+            # else:
+            p_bg_keys = bg_keys
+
+            for i, shape_var in enumerate(shape_vars):
+                plot_params = {
+                    "hists": h.project(0, i + 1),
+                    "sig_keys": plot_sig_keys,
+                    "sig_scale_dict": (
+                        {key: sig_scale_dict[key] for key in plot_sig_keys}
+                        if region.signal
+                        else None
+                    ),
+                    "channel": channel,
+                    "show": show,
+                    "year": year,
+                    "ylim": pass_ylim if pass_region else fail_ylim,
+                    "plot_data": (not (rname == "pass" and blind_pass)) and plot_data,
+                }
+
+                plot_name = (
+                    f"{plot_dir}/"
+                    f"{'jshifts/' if do_jshift else ''}"
+                    f"{rname}_region_{shape_var.var}"
+                )
+
+                plotting.ratioHistPlot(
+                    **plot_params,
+                    bg_keys=p_bg_keys,
+                    title=title,
+                    name=f"{plot_name}{jlabel}.pdf",
+                    plot_ratio=plot_data,
+                )
+
+                if not do_jshift and plot_shifts:
+                    plot_name = f"{plot_dir}/wshifts/" f"{rname}_region_{shape_var.var}"
+
+                    for wshift, wsyst in weight_shifts.items():
+                        plotting.ratioHistPlot(
+                            **plot_params,
+                            bg_keys=p_bg_keys,
+                            syst=(wshift, wsyst.samples),
+                            title=f"{region.label} Region {wsyst.label} Unc.",
+                            name=f"{plot_name}_{wshift}.pdf",
+                            plot_ratio=False,
+                            reorder_legend=False,
+                        )
+
+                        for skey, shift in [("Down", "down"), ("Up", "up")]:
+                            plotting.ratioHistPlot(
+                                **plot_params,
+                                bg_keys=p_bg_keys,  # don't plot QCD
+                                syst=(wshift, wsyst.samples),
+                                variation=shift,
+                                title=f"{region.label} Region {wsyst.label} Unc. {skey} Shapes",
+                                name=f"{plot_name}_{wshift}_{shift}.pdf",
+                                plot_ratio=False,
+                            )
+
+                    if region.signal:
+                        plotting.ratioHistPlot(
+                            **plot_params,
+                            bg_keys=p_bg_keys,
+                            sig_err="txbb",
+                            title=rf"{region.label} Region $T_{{Xbb}}$ Shapes",
+                            name=f"{plot_name}_txbb.pdf",
+                        )
+
+    return templates

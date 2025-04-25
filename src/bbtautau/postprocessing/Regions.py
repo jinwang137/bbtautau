@@ -6,19 +6,10 @@ Author(s): Raghav Kansal
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from utils import CUT_MAX_VAL
+from boostedhh.utils import CUT_MAX_VAL
 
 from bbtautau.bbtautau_utils import Channel
-
-
-@dataclass
-class Region:
-    cuts: dict = None
-    label: str = None
-    signal: bool = False  # is this a signal region?
-    cutstr: str = None  # optional label for the region's cuts e.g. when scanning cuts
+from bbtautau.postprocessing.utils import Region
 
 
 def get_selection_regions(channel: Channel):
@@ -28,9 +19,9 @@ def get_selection_regions(channel: Channel):
             cuts={
                 "bbFatJetPt": [250, CUT_MAX_VAL],
                 "ttFatJetPt": [200, CUT_MAX_VAL],
-                # "ttFatJetMass"  # TODO
+                f"ttFatJet{channel.tt_mass_cut[0]}": channel.tt_mass_cut[1],
                 "bbFatJetParTXbbvsQCD": [channel.txbb_cut, CUT_MAX_VAL],
-                f"ttFatJetParT{channel.tagger}vsQCD": [channel.txtt_cut, CUT_MAX_VAL],
+                f"ttFatJetParTX{channel.tagger_label}vsQCD": [channel.txtt_cut, CUT_MAX_VAL],
             },
             signal=True,
             label="Pass",
@@ -39,9 +30,12 @@ def get_selection_regions(channel: Channel):
             cuts={
                 "bbFatJetPt": [250, CUT_MAX_VAL],
                 "ttFatJetPt": [200, CUT_MAX_VAL],
-                # "ttFatJetMass"  # TODO
-                "bbFatJetParTXbbvsQCD": [-CUT_MAX_VAL, channel.txbb_cut],
-                f"ttFatJetParT{channel.tagger}vsQCD": [-CUT_MAX_VAL, channel.txtt_cut],
+                f"ttFatJet{channel.tt_mass_cut[0]}": channel.tt_mass_cut[1],
+                # invert at least one of the cuts
+                f"bbFatJetParTXbbvsQCD+ttFatJetParTX{channel.tagger_label}vsQCD": [
+                    [-CUT_MAX_VAL, channel.txbb_cut],
+                    [-CUT_MAX_VAL, channel.txtt_cut],
+                ],
             },
             signal=False,
             label="Fail",
