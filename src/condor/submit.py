@@ -61,15 +61,24 @@ if __name__ == "__main__":
     bbtautau_utils.parse_common_run_args(parser)
     args = parser.parse_args()
 
+    print(f"Submitting for years {args.year}")
+    years = args.year
+
     # YAML check
     if args.yaml is not None:
         with Path(args.yaml).open() as file:
             samples_to_submit = yaml.safe_load(file)
 
         tag = args.tag
-        for key, tdict in samples_to_submit.items():
-            # print(f"Submitting for year {key}")
-            args.year = key
+        for year in years:
+            print(f"Submitting for year {year}")
+            if year in samples_to_submit:
+                tdict = samples_to_submit[year]
+            else:
+                print(f"Year-specific settings for {year} not found in YAML; using full YAML")
+                tdict = samples_to_submit
+            
+            args.year = year
             for sample, sdict in tdict.items():
                 args.samples = [sample]
                 subsamples = sdict.get("subsamples", [])

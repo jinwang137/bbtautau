@@ -111,4 +111,11 @@ if __name__ == "__main__":
     run_utils.parse_common_hh_args(parser)
     bbtautau_utils.parse_common_run_args(parser)
     args = parser.parse_args()
+
+    if isinstance(args.year, list):
+        if len(args.year) == 1:
+            args.year = args.year[0]
+        else:
+            raise ValueError("Running on multiple years is not supported yet")
+
     main(args)

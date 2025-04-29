@@ -110,6 +110,11 @@ SAMPLES = {
         label=r"ggF HHbb$\tau\tau$",
         isSignal=True,
     ),
+    "vbfbbtt": Sample(
+        selector=hh_vars.bbtt_sigs["vbfbbtt"],
+        label=r"VBF HHbb$\tau\tau$ (SM)",
+        isSignal=True,
+    ),
     "vbfbbtt-k2v0": Sample(
         selector=hh_vars.bbtt_sigs["vbfbbtt-k2v0"],
         label=r"VBF HHbb$\tau\tau$ ($\kappa_{2V}=0$)",
@@ -117,7 +122,7 @@ SAMPLES = {
     ),
 }
 
-SIGNALS = ["bbtt", "vbfbbtt-k2v0"]
+SIGNALS = ["bbtt", "vbfbbtt", "vbfbbtt-k2v0"]
 SIGNALS_CHANNELS = SIGNALS.copy()
 
 # add individual bbtt channels

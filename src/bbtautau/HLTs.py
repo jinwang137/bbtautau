@@ -27,7 +27,7 @@ class HLTs:
                 data_years=years_2022 + ["2023"],
                 dataset="JetMET",
             ),
-            # 2023 after 6fb-1
+            # 2023 after 6fb-1, that is from Run2023C_0v2 to Run2023C_0v3
             HLT(
                 name="HLT_AK8PFJet230_SoftDropMass40_PNetBB0p06",
                 years=years_2023,
@@ -42,7 +42,7 @@ class HLTs:
         "pfjet": [
             HLT(
                 name="HLT_AK8PFJet420_MassSD30",
-                years=years,
+                years=years,  # years_2023  makes it work in 25Mar7 data samples
                 dataset="JetMET",
             ),
             HLT(
@@ -57,9 +57,15 @@ class HLTs:
             HLT(
                 name="HLT_QuadPFJet70_50_40_35_PFBTagParticleNet_2BTagSum0p65",
                 mc_years=years_2022,
-                data_years=years_2022 + ["2023"],
+                data_years=years_2022,
                 dataset="JetMET",
             ),
+            # HLT( #This should be there but is not in 25Apr17 samples. For now just ignore
+            #     name="HLT_QuadPFJet70_50_40_35_PNet2BTagMean0p65",
+            #     mc_years=[],
+            #     data_years=["2023"],
+            #     dataset="JetMET",
+            # ),
             # 2022 + 2023
             HLT(
                 name="HLT_QuadPFJet103_88_75_15_PFBTagDeepJet_1p3_VBF2",
@@ -148,7 +154,7 @@ class HLTs:
                 dataset="EGamma",
             ),
         ],
-        "met": [
+        "met": [  # need to comment out ot make it work in 25Mar data samples
             HLT(
                 name="HLT_PFMET120_PFMHT120_IDTight",
                 years=years,
@@ -159,7 +165,7 @@ class HLTs:
             # Moved to Parking in 2023 after 6fb-1
             HLT(
                 name="HLT_PFHT280_QuadPFJet30_PNet2BTagMean0p55",
-                years=years_2023,
+                years=["2023BPix"],
                 dataset="ParkingHH",
             ),
             HLT(
@@ -285,3 +291,38 @@ class HLTs:
             raise ValueError(f"Dataset {dataset} not found in HLTs")
 
         return ret_hlts
+
+    @classmethod
+    def hlts_list_by_dtype(
+        cls,
+        year: str,
+        as_str: bool = True,
+        hlt_prefix: bool = True,
+        **hlt_kwargs,
+    ) -> list[HLT | str]:
+        """
+        HLTs per year, with optional filters.
+
+        Args:
+            year (str): year to filter by.
+            as_str (bool): if True, return HLT names only. If False, return HLT objects. Defaults to True.
+            hlt_prefix (bool): if True, return HLT names with "HLT_" prefix. If False, return HLT names without "HLT_" prefix. Defaults to True.
+            **hlt_kwargs: additional kwargs to pass to the hlt_list function.
+
+        Returns:
+            dict[str, list[HLT | str]]: format is ``{data: [hlt, ...], signal: [...]}``
+        """
+        return {
+            "signal": [
+                (hlt.get_name(hlt_prefix) if as_str else hlt)
+                for sublist in cls.hlt_dict(year, as_str=False, mc_only=True, **hlt_kwargs).values()
+                for hlt in sublist
+            ],
+            "data": [
+                (hlt.get_name(hlt_prefix) if as_str else hlt)
+                for sublist in cls.hlt_dict(
+                    year, as_str=False, data_only=True, **hlt_kwargs
+                ).values()
+                for hlt in sublist
+            ],
+        }
