@@ -191,10 +191,10 @@ def trigger_filter(
 
 def get_columns(
     year: str,
-    channel: Channel,
-    triggers: bool = True,
+    triggers_in_channel: Channel = None,
     legacy_taggers: bool = True,
     ParT_taggers: bool = True,
+    other: bool = True,
     num_fatjets: int = 3,
 ):
 
@@ -217,12 +217,18 @@ def get_columns(
         ]:
             columns_data.append((branch, num_fatjets))
 
+    if other:
+        columns_data += [
+            ("METPt", 1),
+            ("ak8FatJetEta", num_fatjets),
+        ]
+
     columns_mc = copy.deepcopy(columns_data)
 
-    if triggers:
-        for branch in channel.triggers(year, data_only=True):
+    if triggers_in_channel is not None:
+        for branch in triggers_in_channel.triggers(year, data_only=True):
             columns_data.append((branch, 1))
-        for branch in channel.triggers(year, mc_only=True):
+        for branch in triggers_in_channel.triggers(year, mc_only=True):
             columns_mc.append((branch, 1))
 
     # signal-only columns
