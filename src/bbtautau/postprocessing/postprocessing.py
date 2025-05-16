@@ -198,7 +198,7 @@ def get_columns(
     num_fatjets: int = 3,
 ):
 
-    columns_data = [("weight", 1), ("ak8FatJetPt", num_fatjets)]
+    columns_data = [("weight", 1), ("ak8FatJetPt", num_fatjets), ("ak8FatJetEta", num_fatjets)]
 
     # common columns
     if legacy_taggers:
@@ -219,8 +219,8 @@ def get_columns(
 
     if other:
         columns_data += [
+            ("nFatJets", 1),
             ("METPt", 1),
-            ("ak8FatJetEta", num_fatjets),
         ]
 
     columns_mc = copy.deepcopy(columns_data)

@@ -9,7 +9,7 @@ import pandas as pd
 import xgboost as xgb
 from boostedhh import utils
 from Samples import SAMPLES
-from sklearn.metrics import accuracy_score, precision_score
+from sklearn.metrics import accuracy_score, precision_score, roc_curve
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
@@ -43,15 +43,16 @@ class Trainer:
                 "lambda": 2.0,
                 "min_child_weight": 0,
                 "colsample_bytree": 1.0,
-                "num_parallel_tree": 500,
+                "num_parallel_tree": 50,
                 "eval_metric": "auc",
                 "tree_method": "hist",
-                "device": "cuda",
+                # "device": "cuda",
             },
-            "num_rounds": 30,
+            "num_rounds": 8,
             "random_seed": 42,
             "train_vars": {
                 "fatjet": {
+                    # will probably only keep the "chosen" tt and bb jets
                     "feats": [
                         "ak8FatJetPt",
                         "ak8FatJetPNetXbbLegacy",
@@ -70,11 +71,10 @@ class Trainer:
                         "ak8FatJetParTXtauhtaum",
                         "ak8FatJetParTXbb",
                         "ak8FatJetEta",
-                        "ak8FatJetPhi",
                     ],
                     "len": 3,
                 },
-                "MET": {
+                "misc": {
                     "feats": [
                         "METPt",
                     ],
@@ -104,7 +104,6 @@ class Trainer:
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
     def load_data(self):
-        print("\n\n\nStart loading data")
         self.events_dict = {}
         for key, sample in self.samples.items():
             if sample.selector is not None:
@@ -135,12 +134,11 @@ class Trainer:
     def prepare_training_set(self):
         """Prepare features and labels using LabelEncoder for multiclass classification."""
         # Get hyperparameters and training variables from config
-        hyperparams = self.bdt_config[self.modelname]["hyperpars"]
+        hyperpars = self.bdt_config[self.modelname]["hyperpars"]
         self.train_vars = self.bdt_config[self.modelname]["train_vars"]
 
         # Initialize lists for features, labels, and weights
         X_list = []
-        # y_list = []
         weights_list = []
         sample_names = []  # Store sample names for each event
 
@@ -148,20 +146,24 @@ class Trainer:
         for sample_name, sample in self.events_dict.items():
             # Flatten multi-entry branches into individual columns
             flattened_events = {}
-            for var in self.train_vars:
-                if var in sample.events.columns:
-                    if isinstance(sample.events[var].iloc[0], (list, np.ndarray)):
-                        # For multi-entry branches, create separate columns
-                        for i in range(len(sample.events[var].iloc[0])):
-                            flattened_events[f"{var}_{i}"] = sample.events[var].iloc[:, i]
-                    else:
-                        flattened_events[var] = sample.events[var]
+
+            # flatten fatjet variables
+            for key in self.train_vars["fatjet"]["feats"]:
+                for jet_i in range(3):
+                    flattened_events[f"{key}_{jet_i}"] = (
+                        sample.events[key].iloc[:, jet_i].to_numpy().flatten()
+                    )
+                    # probably kill jets with padded values here
+
+            # misc variables
+            for key in self.train_vars["misc"]["feats"]:
+                flattened_events[key] = sample.events[key].to_numpy().flatten()
 
             # Convert to DataFrame
-            X_sample = pd.DataFrame(flattened_events)
+            X_sample = pd.DataFrame(data=flattened_events)
 
             # Get weights
-            weights = sample.events["finalWeight"].to_numpy()
+            weights = np.abs(sample.events["finalWeight"].to_numpy())
 
             # Store features and weights
             X_list.append(X_sample)
@@ -183,67 +185,61 @@ class Trainer:
         for i, class_name in enumerate(le.classes_):
             print(f"Class {i}: {class_name}")
 
-        print(X.columns, len(X), len(y), len(weights))
-
         # Split into training and validation sets
         X_train, X_val, y_train, y_val, weights_train, weights_val = train_test_split(
             X,
             y,
             weights,
             test_size=0.2,
-            random_state=hyperparams.get("random_seed", 42),
+            random_state=self.bdt_config[self.modelname]["random_seed"],
             stratify=y,
         )
 
+        print(X_train.shape, X_val.shape)
+
         # Create DMatrix objects
-        self.dtrain = xgb.DMatrix(X_train, label=y_train, weight=weights_train)
+        self.dtrain = xgb.DMatrix(X_train, label=y_train, weight=weights_train, nthread=-1)
         self.dval = xgb.DMatrix(X_val, label=y_val, weight=weights_val)
 
+        # save buffer for quicker loading
+        self.dtrain.save_binary(self.model_dir / "dtrain.buffer")
+        self.dval.save_binary(self.model_dir / "dval.buffer")
+
         # Update hyperparameters with number of classes
-        self.hyperparams = hyperparams.copy()
-        self.hyperparams["num_class"] = len(le.classes_)
+        self.hyperpars = hyperpars.copy()
+        self.hyperpars["num_class"] = len(le.classes_)
 
         return X_train, X_val, y_train, y_val, weights_train, weights_val
 
-    def train_model(
-        self,
-        model_dir: Path,
-        **classifier_params,
-    ):
+    def train_model(self):
         """Trains BDT. ``classifier_params`` are hyperparameters for the classifier"""
-        early_stopping_callback = xgb.callback.EarlyStopping(rounds=5, min_delta=0.0)
-        classifier_params = {**classifier_params, "callbacks": [early_stopping_callback]}
+        # early_stopping_callback = xgb.callback.EarlyStopping(rounds=5, min_delta=0.0)
+        # classifier_params = {
+        #     **self.bdt_config[self.modelname]["hyperpars"],
+        #     "callbacks": [early_stopping_callback],
+        # }
 
-        model = xgb.XGBClassifier(**classifier_params)
+        evals_result = {}
 
-        trained_model = model.fit(
-            self.X_train,
-            self.y_train,
-            sample_weight=self.weights_train,
-            eval_set=[(self.X_train, self.y_train), (self.X_val, self.y_val)],
-            sample_weight_eval_set=[self.weights_train, self.weights_val],
-            verbose=True,
+        evallist = [(self.dtrain, "train"), (self.dval, "eval")]
+        self.bst = xgb.train(
+            self.hyperpars,
+            self.dtrain,
+            self.bdt_config[self.modelname]["num_rounds"],
+            evals=evallist,
+            evals_result=evals_result,
         )
+        self.bst.save_model(self.model_dir / f"{self.modelname}.json")
 
-        trained_model.save_model(model_dir)
-
-        evals_result = trained_model.evals_result()
-
-        with (model_dir / "evals_result.txt").open("w") as f:
+        with (self.model_dir / "evals_result.txt").open("w") as f:
             f.write(str(evals_result))
 
-        return model, evals_result
+        return self.bst, evals_result
 
-    def complete_train(self, include_MC=False, **kwargs):
-        # out-of-the-box for training
-        self.load_data(trigger=None, include_MC=include_MC, **kwargs)
-        self.prepare_training_set(**kwargs)
-        self.train_model(**kwargs)
-
-    def complete_load(self, data_particle=None, trigger=None, include_MC=False, **kwargs):
-        self.load_data(data_particle, trigger=trigger, include_MC=include_MC, **kwargs)
-        self.prepare_training_set(data_particle, **kwargs)
-        self.load_model(**kwargs)
+    def load_model(self):
+        self.bst = xgb.Booster()
+        self.bst.load_model(self.model_dir / f"{self.modelname}.json")
+        return self.bst
 
 
 #     @staticmethod
@@ -454,25 +450,9 @@ def train_multiclass_bdt(year="2022", modelname="test", save_dir=None):
     print("\nPreparing training set...")
     trainer.prepare_training_set()
 
-    # Get default hyperparameters from config
-    default_params = {
-        "objective": "multi:softmax",
-        "max_depth": 8,
-        "subsample": 0.3,
-        "alpha": 8.0,
-        "gamma": 2.0,
-        "lambda": 2.0,
-        "min_child_weight": 0,
-        "colsample_bytree": 1.0,
-        "num_parallel_tree": 500,
-        "eval_metric": "auc",
-        "tree_method": "hist",
-        "device": "cuda",
-    }
-
     # Train model
     print("\nTraining model...")
-    model, evals_result = trainer.train_model(model_dir=trainer.model_dir, **default_params)
+    model, evals_result = trainer.train_model()
 
     # Generate and save plots
     print("\nGenerating plots...")
@@ -506,6 +486,22 @@ def train_multiclass_bdt(year="2022", modelname="test", save_dir=None):
         "classes": trainer.label_encoder.classes_.tolist(),
     }
 
+    fpr, tpr, thresholds = roc_curve(trainer.y_val, y_pred)
+
+    # Calculate the area under the ROC curve (AUC)
+    # roc_auc = auc(fpr, tpr)
+
+    # plotting.multiROCCurve(
+    #             {"": {"fpr": fpr, "tpr": tpr, "label": "test"}},
+    #             title=title,
+    #             thresholds=[0.3, 0.5, 0.9, 0.99, 0.998],
+    #             show=True,
+    #             plot_dir=plot_dir,
+    #             lumi=f"{np.sum([hh_vars.LUMI[year] for year in years]) / 1000:.1f}",
+    #             year="2022-23" if len(years) == 4 else "+".join(years),
+    #             name=f"roc_test.png",
+    #         )
+
     with (plot_dir / "metrics.json").open("w") as f:
         json.dump(metrics, f, indent=2)
 
@@ -519,6 +515,7 @@ if __name__ == "__main__":
 
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Train a multiclass BDT model")
+
     parser.add_argument("--year", type=str, default="2022", help="Year of data to use")
     parser.add_argument(
         "--model", type=str, default="test", help="Name of the model configuration to use"
