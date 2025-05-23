@@ -317,7 +317,12 @@ def get_columns(
     num_fatjets: int = 3,
 ):
 
-    columns_data = [("weight", 1), ("ak8FatJetPt", num_fatjets), ("ak8FatJetEta", num_fatjets)]
+    columns_data = [
+        ("weight", 1),
+        ("ak8FatJetPt", num_fatjets),
+        ("ak8FatJetEta", num_fatjets),
+        ("ak8FatJetPhi", num_fatjets),
+    ]
 
     # common columns
     if legacy_taggers:
@@ -331,15 +336,18 @@ def get_columns(
         ]
 
     if ParT_taggers:
-        for branch in [
-            f"ak8FatJetParT{key}" for key in Samples.qcdouts + Samples.topouts + Samples.sigouts
-        ]:
+        for branch in (
+            [f"ak8FatJetParT{key}" for key in Samples.qcdouts + Samples.topouts + Samples.sigouts]
+            + [f"ak8FatJetParT{key}vsQCD" for key in Samples.sigouts if key != "Xtauhtaum"]
+            + [f"ak8FatJetParT{key}vsQCDTop" for key in Samples.sigouts if key != "Xtauhtaum"]
+        ):
             columns_data.append((branch, num_fatjets))
 
     if other:
         columns_data += [
             ("nFatJets", 1),
             ("METPt", 1),
+            ("METPhi", 1),
         ]
 
     columns_mc = copy.deepcopy(columns_data)
@@ -632,7 +640,7 @@ def derive_variables(events_dict: dict[str, LoadedSample], channel: Channel, num
         if "ak8FatJetPNetXbbvsQCDLegacy" not in sample.events:
             Xbb = sample.get_var("ak8FatJetPNetXbbLegacy")
             QCD = sample.get_var("ak8FatJetPNetQCDLegacy")
-            Xbb_vs_QCD = Xbb / (Xbb + QCD)
+            Xbb_vs_QCD = np.divide(Xbb, Xbb + QCD, out=np.zeros_like(Xbb), where=(Xbb + QCD) != 0)
 
             for n in range(num_fatjets):
                 sample.events[("ak8FatJetPNetXbbvsQCDLegacy", str(n))] = Xbb_vs_QCD[:, n]
@@ -641,10 +649,22 @@ def derive_variables(events_dict: dict[str, LoadedSample], channel: Channel, num
             tauhtaum = sample.get_var("ak8FatJetParTXtauhtaum")
             qcd = sample.get_var("ak8FatJetParTQCD")
             top = sample.get_var("ak8FatJetParTTop")
-            tauhtaum_vs_QCDTop = tauhtaum / (tauhtaum + qcd + top)
+            tauhtaum_vs_QCDTop = np.divide(
+                tauhtaum,
+                tauhtaum + qcd + top,
+                out=np.zeros_like(tauhtaum),
+                where=(tauhtaum + qcd + top) != 0,
+            )
 
             for n in range(num_fatjets):
                 sample.events[("ak8FatJetParTXtauhtaumvsQCDTop", str(n))] = tauhtaum_vs_QCDTop[:, n]
+
+        if channel.key == "hm" and "ak8FatJetParTXtauhtaumvsQCD" not in sample.events:
+            tauhtaum_vs_QCD = np.divide(
+                tauhtaum, tauhtaum + qcd, out=np.zeros_like(tauhtaum), where=(tauhtaum + qcd) != 0
+            )
+            for n in range(num_fatjets):
+                sample.events[("ak8FatJetParTXtauhtaumvsQCD", str(n))] = tauhtaum_vs_QCD[:, n]
 
 
 def bbtautau_assignment_old(events_dict: dict[str, pd.DataFrame], channel: Channel):
@@ -678,10 +698,20 @@ def bbtautau_assignment_old(events_dict: dict[str, pd.DataFrame], channel: Chann
     return bbtt_masks
 
 
-def bbtautau_assignment(events_dict: dict[str, pd.DataFrame | LoadedSample], channel: Channel):
+def bbtautau_assignment(
+    events_dict: dict[str, pd.DataFrame | LoadedSample],
+    channel: Channel = None,
+    agnostic: bool = False,
+):
     """Assign bb and tautau jets per each event."""
 
+    # if channel is none but agnostic is false raise an error
+    if channel is None and not agnostic:
+        raise ValueError("Channel is required if agnostic is False")
+
     if not isinstance(next(iter(events_dict.values())), LoadedSample):
+        if agnostic:
+            raise ValueError("Need to work with LoadedSample if agnostic is True")
         warnings.warn(
             "Deprecation warning: Should switch to using the LoadedSample class in the future!",
             stacklevel=1,
@@ -695,9 +725,20 @@ def bbtautau_assignment(events_dict: dict[str, pd.DataFrame | LoadedSample], cha
         }
 
         # assign tautau jet as the one with the highest ParTtautauvsQCD score
-        tautau_pick = np.argmax(
-            sample.get_var(f"ak8FatJetParTX{channel.tagger_label}vsQCD"), axis=1
-        )
+        if agnostic:
+            sig_labels = [ch.tagger_label for ch in CHANNELS.values()]
+            num = (
+                sample.get_var(f"ak8FatJetParTX{sig_labels[0]}")
+                + sample.get_var(f"ak8FatJetParTX{sig_labels[1]}")
+                + sample.get_var(f"ak8FatJetParTX{sig_labels[2]}")
+            )
+            denom = num + sample.get_var("ak8FatJetParTQCD") + sample.get_var("ak8FatJetParTTop")
+            combined_score = np.divide(num, denom, out=np.zeros_like(num), where=(num + denom) != 0)
+            tautau_pick = np.argmax(combined_score, axis=1)
+        else:
+            tautau_pick = np.argmax(
+                sample.get_var(f"ak8FatJetParTX{channel.tagger_label}vsQCD"), axis=1
+            )
 
         # assign bb jet as the one with the highest ParTXbbvsQCD score, but prioritize tautau
         bb_sorted = np.argsort(sample.get_var("ak8FatJetParTXbbvsQCD"), axis=1)

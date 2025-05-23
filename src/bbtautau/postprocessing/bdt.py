@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import ClassVar
 
@@ -10,12 +11,18 @@ import pandas as pd
 import xgboost as xgb
 from bdt_config import bdt_config
 from boostedhh import hh_vars, plotting, utils
-from Samples import SAMPLES
+from boostedhh.utils import Sample
+from Samples import CHANNELS, SAMPLES
 from sklearn.metrics import auc, roc_curve
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
-from bbtautau.postprocessing.postprocessing import base_filters_default, get_columns
+from bbtautau.postprocessing.postprocessing import (
+    base_filters_default,
+    bbtautau_assignment,
+    derive_variables,
+    get_columns,
+)
 from bbtautau.postprocessing.utils import LoadedSample
 
 
@@ -24,15 +31,17 @@ class Trainer:
     loaded_dmatrix = False
 
     sample_names: ClassVar[list[str]] = [
-        "bbtt",
         "qcd",
         "ttbarhad",
         "ttbarsl",
         "ttbarll",
         "dyjets",
+        "bbtt",
     ]
 
-    samples: ClassVar[dict[str, any]] = {name: SAMPLES[name] for name in sample_names}
+    samples: ClassVar[dict[str, Sample]] = {name: SAMPLES[name] for name in sample_names}
+
+    del sample_names
 
     def __init__(self, years, modelname=None) -> None:
         self.years = years
@@ -54,9 +63,9 @@ class Trainer:
         )
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
-    def load_data(self, base_filters=True):
+    def load_data(self, base_filters=True, force_reload=False):
         # Check if data buffer file exists
-        if self.model_dir / "dtrain.buffer" in self.model_dir.glob("*.buffer"):
+        if self.model_dir / "dtrain.buffer" in self.model_dir.glob("*.buffer") and not force_reload:
             print("Loading data from buffer file")
             self.dtrain = xgb.DMatrix(self.model_dir / "dtrain.buffer")
             self.dval = xgb.DMatrix(self.model_dir / "dval.buffer")
@@ -67,25 +76,32 @@ class Trainer:
                 for key, sample in self.samples.items():
                     if sample.selector is not None:
                         sample.load_columns = get_columns(year)[sample.get_type()]
-                    # print(sample.load_columns)
-                    events = utils.load_sample(
-                        sample, year, self.data_path, base_filters_default if base_filters else None
-                    )
+                        events = utils.load_sample(
+                            sample,
+                            year,
+                            self.data_path,
+                            base_filters_default if base_filters else None,
+                        )
+                        self.events_dict[year][key] = LoadedSample(sample=sample, events=events)
+                        print(f"Successfully imported sample {sample.label} (key: {key}) to memory")
+                derive_variables(
+                    self.events_dict[year], CHANNELS["hm"]
+                )  # legacy issue, muon branches are misnamed
+                bbtautau_assignment(self.events_dict[year], agnostic=True)
 
-                    self.events_dict[year][key] = LoadedSample(sample=sample, events=events)
-                    print(f"Successfully imported sample {sample.label} (key: {key}) to memory")
-
-            for year in self.years:
-                for ch in ["hh", "he", "hm"]:
+            for ch, channel in CHANNELS.items():
+                for year in self.years:
                     self.events_dict[year][f"bbtt{ch}"] = LoadedSample(
                         sample=SAMPLES[f"bbtt{ch}"],
                         events=self.events_dict[year]["bbtt"].events[
                             self.events_dict[year]["bbtt"].get_var(f"GenTau{ch}")
                         ],
                     )
-                    self.samples[f"bbtt{ch}"] = SAMPLES[f"bbtt{ch}"]
-                del self.events_dict[year]["bbtt"]
+                self.samples[f"bbtt{ch}"] = SAMPLES[f"bbtt{ch}"]
+                bbtautau_assignment(self.events_dict[year], channel)
             del self.samples["bbtt"]
+            for year in self.years:
+                del self.events_dict[year]["bbtt"]
 
     @staticmethod
     def shorten_df(df, N, seed=42):
@@ -93,54 +109,63 @@ class Trainer:
             return df
         return df.sample(n=N, random_state=seed)
 
-    def prepare_training_set(self, train=False, njets=2):
+    def prepare_training_set(self, train=False):
         """Prepare features and labels using LabelEncoder for multiclass classification."""
-
         # Get hyperparameters and training variables from config
         self.hyperpars = self.bdt_config[self.modelname]["hyperpars"]
         self.train_vars = self.bdt_config[self.modelname]["train_vars"]
 
         if self.loaded_dmatrix:
-            return None
+            # TODO need to have stored the sample names somewhere
+            return
 
         # Initialize lists for features, labels, and weights
         X_list = []
         weights_list = []
-        sample_names = []  # Store sample names for each event
+        sample_names_labels = []  # Store sample names for each event
 
         # Process each sample
         for year in self.years:
+            total_signal_weight = np.concatenate(
+                [
+                    np.abs(self.events_dict[year][sig_sample].events["finalWeight"].to_numpy())
+                    for sig_sample in self.samples
+                    if self.samples[sig_sample].isSignal
+                ]
+            ).sum()
+            total_ttbar_weight = np.concatenate(
+                [
+                    np.abs(self.events_dict[year][ttbar_sample].events["finalWeight"].to_numpy())
+                    for ttbar_sample in self.samples
+                    if "ttbar" in ttbar_sample
+                ]
+            ).sum()
+            print("total_signal_weight", total_signal_weight)
+            print("total_ttbar_weight", total_ttbar_weight)
+
             for sample_name, sample in self.events_dict[year].items():
-                # Flatten multi-entry branches into individual columns
-                flattened_events = {}
 
-                # filter by simple preselection
-                # twojets = (sample.events["ak8FatJetPt"][0] > 250) & (sample.events["ak8FatJetPt"][1] > 200)
-                # sample.events = sample.events[twojets]
-
-                # flatten fatjet variables
-                for key in self.train_vars["fatjet"]["feats"]:
-                    for jet_i in range(njets):
-                        flattened_events[f"{key}_{jet_i}"] = (
-                            sample.events[key].iloc[:, jet_i].to_numpy().flatten()
-                        )
-
-                # misc variables
-                for key in self.train_vars["misc"]["feats"]:
-                    flattened_events[key] = sample.events[key].to_numpy().flatten()
-
-                # Convert to DataFrame
-                X_sample = pd.DataFrame(data=flattened_events)
+                X_sample = sample.events[self.train_vars["misc"]["feats"]].assign(
+                    **{
+                        feat: sample.events[feat].where(sample.tt_mask, 0).sum(axis=1)
+                        for feat in self.train_vars["fatjet"]["feats"]
+                    }
+                )
 
                 # Get weights
                 weights = np.abs(sample.events["finalWeight"].to_numpy())
 
-                # Store features and weights
+                if sample.sample.isSignal:
+                    weights = weights * 1e5
+                elif "ttbar" in sample_name:
+                    weights = weights / total_ttbar_weight * total_signal_weight * 1e5
+                else:  # qcd, dy
+                    weights = weights * total_signal_weight / np.sum(weights) * 1e5
+
                 X_list.append(X_sample)
                 weights_list.append(weights)
 
-                # Store sample names for each event
-                sample_names.extend([sample_name] * len(sample.events))
+                sample_names_labels.extend([sample_name] * len(sample.events))
 
         # Combine all samples
         X = pd.concat(X_list, axis=0)
@@ -148,7 +173,8 @@ class Trainer:
 
         # Use LabelEncoder to convert sample names to numeric labels
         self.label_encoder = LabelEncoder()
-        y = self.label_encoder.fit_transform(sample_names)
+        y = self.label_encoder.fit_transform(sample_names_labels)
+        self.classes = self.label_encoder.classes_
 
         # Print class mapping
         print("\nClass mapping:")
@@ -169,18 +195,12 @@ class Trainer:
 
         # Create DMatrix objects
         self.dtrain = xgb.DMatrix(X_train, label=y_train, weight=weights_train, nthread=-1)
-        self.dval = xgb.DMatrix(X_val, label=y_val, weight=weights_val)
+        self.dval = xgb.DMatrix(X_val, label=y_val, weight=weights_val, nthread=-1)
 
-        # # save buffer for quicker loading
+        # save buffer for quicker loading
         if train:
             self.dtrain.save_binary(self.model_dir / "dtrain.buffer")
             self.dval.save_binary(self.model_dir / "dval.buffer")
-
-        # Update hyperparameters with number of classes (for now keep in config)
-        # self.hyperpars = hyperpars.copy()
-        # self.hyperpars["num_class"] = len(self.label_encoder.classes_)
-
-        return X_train, X_val, y_train, y_val, weights_train, weights_val
 
     def train_model(self):
         """Trains BDT. ``classifier_params`` are hyperparameters for the classifier"""
@@ -203,10 +223,11 @@ class Trainer:
         )
         self.bst.save_model(self.model_dir / f"{self.modelname}.json")
 
-        with (self.model_dir / "evals_result.txt").open("w") as f:
-            f.write(str(evals_result))
+        # Save evaluation results as JSON
+        with (self.model_dir / "evals_result.json").open("w") as f:
+            json.dump(evals_result, f, indent=2)
 
-        return evals_result
+        return
 
     def load_model(self):
         self.bst = xgb.Booster()
@@ -218,13 +239,16 @@ class Trainer:
             print(e)
         return self.bst
 
-    def evaluate_training(self, evals_result):
+    def evaluate_training(self):
+        # Load evaluation results from JSON
+        with (self.model_dir / "evals_result.json").open("r") as f:
+            evals_result = json.load(f)
+
         plt.figure(figsize=(10, 6))
-        plt.plot(evals_result["train"]["auc"], label="Train")
-        plt.plot(evals_result["eval"]["auc"], label="Validation")
+        plt.plot(evals_result["train"][self.hyperpars["eval_metric"]], label="Train")
+        plt.plot(evals_result["eval"][self.hyperpars["eval_metric"]], label="Validation")
         plt.xlabel("Iteration")
-        plt.ylabel("AUC Score")
-        plt.title("Training History")
+        plt.ylabel(self.hyperpars["eval_metric"])
         plt.legend()
         plt.savefig(self.model_dir / "training_history.png")
         plt.close()
@@ -237,14 +261,7 @@ class Trainer:
         plt.savefig(self.model_dir / "feature_importance.png")
         plt.close()
 
-        # Print summary
-        print("\nTraining Summary:")
-        print(f"Number of classes: {len(self.label_encoder.classes_)}")
-        print("\nClass mapping:")
-        for i, class_name in enumerate(self.label_encoder.classes_):
-            print(f"Class {i}: {class_name}")
-
-    def complete_train(self, training_info=True, **kwargs):
+    def complete_train(self, training_info=True, force_reload=False, **kwargs):
         """Train a multiclass BDT model.
 
         Args:
@@ -254,18 +271,19 @@ class Trainer:
 
         """
         # out-of-the-box for training
-        self.load_data(**kwargs)
+        self.load_data(force_reload=force_reload, **kwargs)
         self.prepare_training_set(train=True, **kwargs)
-        evals_result = self.train_model(**kwargs)
+        self.train_model(**kwargs)
         if training_info:
-            self.evaluate_training(evals_result)
+            self.evaluate_training()
         self.compute_rocs()
 
-    def complete_load(self, **kwargs):
-        self.load_data(**kwargs)
+    def complete_load(self, force_reload=False, **kwargs):
+        self.load_data(force_reload=force_reload, **kwargs)
         self.prepare_training_set(**kwargs)
         self.load_model(**kwargs)
         self.compute_rocs()
+        self.evaluate_training()
 
         # add other info: precision, accuracy, other metrics
 
@@ -273,6 +291,7 @@ class Trainer:
 
         y_pred = self.bst.predict(self.dval, output_margin=True)
 
+        # TODO: de-hardcode this
         sigs_strs = {"hh": 0, "he": 1, "hm": 2}
         bg_strs = {"QCD": [4], "all": [3, 4, 5, 6, 7]}
 
@@ -294,31 +313,41 @@ class Trainer:
 
                     sig_score = y_pred[:, sigs_strs[sig]]
                     bg_scores = np.sum([y_pred[:, b] for b in bg_strs[bg]], axis=0)
-                    score = np.divide(
+                    disc_score = np.divide(
                         sig_score,
                         sig_score + bg_scores,
                         out=np.zeros_like(sig_score),
                         where=(sig_score + bg_scores != 0),
                     )
 
+                    # print(score[sig_truth])
+                    # print(score[self.dval.get_label() == 3])
+
+                    (self.model_dir / "scores").mkdir(parents=True, exist_ok=True)
+                    (self.model_dir / "outputs").mkdir(parents=True, exist_ok=True)
+
                     plotting.plot_hist(
-                        [sig_score[sig_truth], bg_scores[bg_truth]],
-                        [sig, bg],
+                        [disc_score[sig_truth]]
+                        + [disc_score[self.dval.get_label() == b] for b in bg_strs["all"]],
+                        [sig] + [bg_strs["all"]],
                         nbins=100,
-                        weights=[weights[sig_truth], weights[bg_truth]],
-                        xlabel="BDT score",
+                        xlim=(-0.7, 0.7),
+                        weights=[weights[sig_truth]]
+                        + [weights[self.dval.get_label() == b] for b in bg_strs["all"]],
+                        xlabel=f"BDT {disc} score",
                         lumi=f"{np.sum([hh_vars.LUMI[year] for year in self.years]) / 1000:.1f}",
                         density=True,
                         year="-".join(self.years) if len(self.years) < 4 else "2022-2023",
-                        saveas=self.model_dir / f"bdt_scores_{sig}_{bg}.png",
+                        saveas=self.model_dir / f"scores/bdt_scores_{sig}_{bg}.png",
                     )
 
                     # exclude events that are not signal or background
                     mask = bg_truth | sig_truth
-                    score = score[mask]
+                    disc_score = disc_score[mask]
                     truth = truth[mask]
+                    weights_all = weights.copy()
                     weights = weights[mask]
-                    fpr, tpr, thresholds = roc_curve(truth, score, sample_weight=weights)
+                    fpr, tpr, thresholds = roc_curve(truth, disc_score, sample_weight=weights)
                     # print(fpr, tpr, thresholds)
                     roc_auc = auc(fpr, tpr)
 
@@ -330,12 +359,27 @@ class Trainer:
                         "auc": roc_auc,
                     }
 
-                    # Plot ROC curve
+                plotting.plot_hist(
+                    [sig_score[sig_truth]]
+                    + [bg_scores[self.dval.get_label() == b] for b in bg_strs["all"]],
+                    [sig] + bg_strs["all"],  # need to have a label mapping in case quick load
+                    nbins=100,
+                    weights=[weights_all[sig_truth]]
+                    + [weights_all[self.dval.get_label() == b] for b in bg_strs["all"]],
+                    xlabel="BDT output score",
+                    lumi=f"{np.sum([hh_vars.LUMI[year] for year in self.years]) / 1000:.1f}",
+                    density=True,
+                    year="-".join(self.years) if len(self.years) < 4 else "2022-2023",
+                    saveas=self.model_dir / f"outputs/bdt_outputs_{sig}.png",
+                )
+
+                # Plot ROC curve
+                (self.model_dir / "rocs").mkdir(parents=True, exist_ok=True)
                 plotting.multiROCCurve(
                     {"": {b: self.rocs[sig][b] for b in bg_strs}},
                     thresholds=[0.3, 0.5, 0.9, 0.99],
                     show=True,
-                    plot_dir=self.model_dir,
+                    plot_dir=self.model_dir / "rocs",
                     lumi=f"{np.sum([hh_vars.LUMI[year] for year in self.years]) / 1000:.1f}",
                     year="-".join(self.years) if len(self.years) < 4 else "2022-2023",
                     name=f"roc_{sig}",
@@ -354,6 +398,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--save-dir", type=str, default=None, help="Directory to save model and plots"
     )
+    parser.add_argument(
+        "--force-reload", action="store_true", default=False, help="Force reload of data"
+    )
 
     # Add mutually exclusive group for train/load
     group = parser.add_mutually_exclusive_group()
@@ -364,6 +411,6 @@ if __name__ == "__main__":
     trainer = Trainer(args.years, args.model)
 
     if args.train:
-        trainer.complete_train()
+        trainer.complete_train(force_reload=args.force_reload)
     else:
-        trainer.complete_load()
+        trainer.complete_load(force_reload=args.force_reload)
