@@ -4,7 +4,7 @@ bdt_config = {
     "test_fast": {
         "modelname": "test_fast",
         "hyperpars": {
-            "objective": "multi:softmax",
+            "objective": "multi:softprob",
             "max_depth": 8,
             # "subsample": 0.3,
             # "alpha": 8.0,
@@ -51,7 +51,7 @@ bdt_config = {
     "test": {
         "modelname": "test",
         "hyperpars": {
-            "objective": "multi:softmax",
+            "objective": "multi:softprob",
             "max_depth": 12,
             "subsample": 0.3,
             "alpha": 8.0,
@@ -59,13 +59,13 @@ bdt_config = {
             "lambda": 2.0,
             "min_child_weight": 0,
             "colsample_bytree": 1.0,
-            "num_parallel_tree": 100,
+            "num_parallel_tree": 10,
             "eval_metric": "mlogloss",
             "tree_method": "hist",
             "num_class": 8,
             # "device": "cuda",
         },
-        "num_rounds": 20,
+        "num_rounds": 10,
         "random_seed": 42,
         "train_vars": {
             "fatjet": {
