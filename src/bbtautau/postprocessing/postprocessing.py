@@ -754,6 +754,100 @@ def bbtautau_assignment(
         sample.tt_mask = bbtt_masks["tt"]
 
 
+def _add_bdt_scores(
+    events: pd.DataFrame,
+    sample_bdt_preds: np.ndarray,
+    multiclass: bool,
+    all_outs: bool = True,
+    jshift: str = "",
+):
+    """
+    Assumes map to be
+    Class 0: bbtthe
+    Class 1: bbtthh
+    Class 2: bbtthm
+    Class 3: dyjets
+    Class 4: qcd
+    Class 5: ttbarhad
+    Class 6: ttbarll
+    Class 7: ttbarsl
+    """
+
+    if jshift != "":
+        jshift = "_" + jshift
+
+    if not multiclass:
+        events[f"BDTScore{jshift}"] = sample_bdt_preds
+    else:
+        bg_tot = np.sum(sample_bdt_preds[:, 3:], axis=1)
+        hh_score = sample_bdt_preds[:, 0]  # TODO could be de-hardcoded
+        hm_score = sample_bdt_preds[:, 1]
+        he_score = sample_bdt_preds[:, 2]
+
+        events[f"BDTScorehh{jshift}"] = hh_score / (hh_score + bg_tot)
+        events[f"BDTScorehm{jshift}"] = hm_score / (hm_score + bg_tot)
+        events[f"BDTScorehe{jshift}"] = he_score / (he_score + bg_tot)
+
+        if all_outs:
+            events[f"BDTScoreDY{jshift}"] = sample_bdt_preds[:, 3]
+            events[f"BDTScoreQCD{jshift}"] = sample_bdt_preds[:, 4]
+            events[f"BDTScoreTThad{jshift}"] = sample_bdt_preds[:, 5]
+            events[f"BDTScoreTTll{jshift}"] = sample_bdt_preds[:, 6]
+            events[f"BDTScoreTTSL{jshift}"] = sample_bdt_preds[:, 7]
+
+
+def load_bdt_preds(
+    events_dict: dict[str, pd.DataFrame],
+    year: str,
+    bdt_preds_dir: Path,
+    # jec_jmsr_shifts: bool = False,
+    all_outs: bool = False,
+):
+    """
+    Loads the BDT scores for each event and saves in the dataframe in the "BDTScore" column.
+    If ``jec_jmsr_shifts``, also loads BDT preds for every JEC / JMSR shift in MC.
+
+    Args:
+        bdt_preds (str): Path to the bdt_preds .npy file.
+        bdt_sample_order (List[str]): Order of samples in the predictions file.
+
+    """
+    with (bdt_preds_dir / year / "sample_order.txt").open() as f:
+        sample_order_dict = eval(f.read())
+
+    bdt_preds = np.load(f"{bdt_preds_dir}/{year}/preds.npy")
+
+    multiclass = len(bdt_preds.shape) > 1
+
+    # if jec_jmsr_shifts:
+    #     shift_preds = {
+    #         jshift: np.load(f"{bdt_preds_dir}/{year}/preds_{jshift}.npy")
+    #         for jshift in jec_shifts + jmsr_shifts
+    #     }
+
+    i = 0
+    for sample, num_events in sample_order_dict.items():
+        if sample in events_dict:
+            events = events_dict[sample]
+            assert num_events == len(
+                events
+            ), f"# of BDT predictions does not match # of events for sample {sample}"
+
+            sample_bdt_preds = bdt_preds[i : i + num_events]
+            _add_bdt_scores(events, sample_bdt_preds, multiclass, all_outs)
+
+            # if jec_jmsr_shifts and sample != data_key:
+            #     for jshift in jec_shifts + jmsr_shifts:
+            #         sample_bdt_preds = shift_preds[jshift][i : i + num_events]
+            #         _add_bdt_scores(
+            #             events, sample_bdt_preds, multiclass, multisig, all_outs, jshift=jshift
+            #         )
+
+        i += num_events
+
+    assert i == len(bdt_preds), f"# events {i} != # of BDT preds {len(bdt_preds)}"
+
+
 def control_plots(
     events_dict: dict[str, pd.DataFrame],
     channel: Channel,

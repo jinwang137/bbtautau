@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import ClassVar
 
@@ -11,11 +12,14 @@ import pandas as pd
 import xgboost as xgb
 from bdt_config import bdt_config
 from boostedhh import hh_vars, plotting, utils
-from boostedhh.utils import Sample
 from Samples import CHANNELS, SAMPLES
-from sklearn.metrics import auc, roc_curve
+from sklearn.metrics import (
+    auc,
+    roc_curve,
+)
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
+from tabulate import tabulate
 
 from bbtautau.postprocessing.postprocessing import (
     base_filters_default,
@@ -25,10 +29,9 @@ from bbtautau.postprocessing.postprocessing import (
 )
 from bbtautau.postprocessing.utils import LoadedSample
 
-# TODOS
-# - softmax
-# - plot output by sample
-# - renormalize weights in training. inspect total weights, compare different methods
+# TODO
+# - k-fold cross validation
+# - early stopping
 
 
 class Trainer:
@@ -44,28 +47,80 @@ class Trainer:
         "bbtt",
     ]
 
-    samples: ClassVar[dict[str, Sample]] = {name: SAMPLES[name] for name in sample_names}
-
-    del sample_names
-
-    def __init__(self, years, modelname=None) -> None:
+    def __init__(self, years, sample_names=None, modelname=None, model_dir=None) -> None:
+        if years[0] == "all":
+            print("Using all years")
+            years = ["2022", "2022EE", "2023", "2023BPix"]
+        else:
+            years = list(years)
         self.years = years
+
+        if sample_names is not None:
+            self.sample_names = sample_names
+
+        self.samples = {name: SAMPLES[name] for name in self.sample_names}
+
         self.data_path = {
-            "signal": Path(
-                "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal/"
-            ),
-            "bg": Path(
-                "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal/"
-            ),
+            "2022": {
+                "signal": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal/"
+                ),
+                "bg": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal/"
+                ),
+                "data": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal/"
+                ),
+            },
+            "2022EE": {
+                "signal": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal"
+                ),
+                "bg": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal"
+                ),
+                "data": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal/"
+                ),
+            },
+            "2023": {
+                "signal": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal"
+                ),
+                "bg": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal"
+                ),
+                "data": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal/"
+                ),
+            },
+            "2023BPix": {
+                "signal": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal"
+                ),
+                "bg": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal"
+                ),
+                "data": Path(
+                    "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal/"
+                ),
+            },
         }
         self.bdt_config = bdt_config
+
         if modelname is not None:
             self.modelname = modelname
         else:
             self.modelname = "test"
-        self.model_dir = Path(
-            f"/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/trained_models/{self.modelname}_{'-'.join(self.years)}"
-        )
+
+        if model_dir is not None:
+            self.model_dir = Path(
+                f"/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/{model_dir}"
+            )
+        else:
+            self.model_dir = Path(
+                f"/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/trained_models/{self.modelname}_{('-'.join(self.years) if len(self.years) < 4 else 'all')}"
+            )
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
     def load_data(self, base_filters=True, force_reload=False):
@@ -87,7 +142,7 @@ class Trainer:
                         events = utils.load_sample(
                             sample,
                             year,
-                            self.data_path,
+                            self.data_path[year],
                             base_filters_default if base_filters else None,
                         )
                         self.events_dict[year][key] = LoadedSample(sample=sample, events=events)
@@ -105,8 +160,10 @@ class Trainer:
                             self.events_dict[year]["bbtt"].get_var(f"GenTau{ch}")
                         ],
                     )
+                    bbtautau_assignment(
+                        self.events_dict[year], channel
+                    )  # overwrites jet assignment in signal channels
                 self.samples[f"bbtt{ch}"] = SAMPLES[f"bbtt{ch}"]
-                bbtautau_assignment(self.events_dict[year], channel)
             del self.samples["bbtt"]
             for year in self.years:
                 del self.events_dict[year]["bbtt"]
@@ -120,12 +177,10 @@ class Trainer:
     def prepare_training_set(self, train=False, scale_rule="signal", balance="bysigbkg"):
         """Prepare features and labels using LabelEncoder for multiclass classification."""
 
-        if scale_rule not in ["signal", "bkg", "fixed"]:
-            # TODO study difference in performance
+        if scale_rule not in ["signal", "signal_1e-1", "signal_1e-2"]:
             raise ValueError(f"Invalid scale rule: {scale_rule}")
 
-        if balance not in ["bysigbkg", "bysample"]:
-            # TODO study difference in performance
+        if balance not in ["bysigbkg", "bysample_legacy", "bysample", "bysample_aggregate_ttbar"]:
             raise ValueError(f"Invalid balance rule: {balance}")
 
         # Get hyperparameters and training variables from config
@@ -148,21 +203,21 @@ class Trainer:
         for year in self.years:
             total_signal_weight = np.concatenate(
                 [
-                    np.abs(self.events_dict[year][sig_sample].events["finalWeight"].to_numpy())
+                    np.abs(self.events_dict[year][sig_sample].get_var("finalWeight"))
                     for sig_sample in self.samples
                     if self.samples[sig_sample].isSignal
                 ]
             ).sum()
             total_ttbar_weight = np.concatenate(
                 [
-                    np.abs(self.events_dict[year][ttbar_sample].events["finalWeight"].to_numpy())
+                    np.abs(self.events_dict[year][ttbar_sample].get_var("finalWeight"))
                     for ttbar_sample in self.samples
                     if "ttbar" in ttbar_sample
                 ]
             ).sum()
             total_bkg_weight = np.concatenate(
                 [
-                    np.abs(self.events_dict[year][bkg_sample].events["finalWeight"].to_numpy())
+                    np.abs(self.events_dict[year][bkg_sample].get_var("finalWeight"))
                     for bkg_sample in self.samples
                     if self.samples[bkg_sample].isBackground
                 ]
@@ -190,6 +245,8 @@ class Trainer:
                 ]
             )
 
+            print(f"year: {year}")
+
             print("total_signal_weight", total_signal_weight)
             print("total_bkg_weight", total_bkg_weight)
             print("total_ttbar_weight", total_ttbar_weight)
@@ -198,36 +255,54 @@ class Trainer:
             print("average bkg weight", total_bkg_weight / len_bkg)
             print("average ttbar weight", total_ttbar_weight / len_ttbar)
 
+            print("--------------------------------")
+
             for sample_name, sample in self.events_dict[year].items():
 
-                X_sample = sample.events[self.train_vars["misc"]["feats"]].assign(
-                    **{
-                        feat: sample.events[feat].where(sample.tt_mask, 0).sum(axis=1)
-                        for feat in self.train_vars["fatjet"]["feats"]
+                X_sample = pd.DataFrame(
+                    {
+                        feat: sample.get_var(feat)
+                        for feat in self.train_vars["misc"]["feats"]
+                        + self.train_vars["fatjet"]["feats"]
                     }
                 )
 
-                # Get weights
-                weights = np.abs(sample.events["finalWeight"].to_numpy())
+                weights = np.abs(sample.get_var("finalWeight").copy())
 
                 # Rescale all weights based on rule
                 if (
                     scale_rule == "signal"
-                ):  # rescale by average signal weight, so median signal event has weight 1
+                ):  # rescale by average signal weight, so median signal event has weight 1, .1 or .01
                     weights = weights / (total_signal_weight / len_signal)
-                elif scale_rule == "bkg":
-                    weights = weights / (total_bkg_weight / len_bkg)
-                elif scale_rule == "fixed":
-                    weights = weights * 1e5
+                elif scale_rule == "signal_1e-1":
+                    weights = weights / (total_signal_weight / len_signal) * 1e-1
+                elif scale_rule == "signal_1e-2":
+                    weights = weights / (total_signal_weight / len_signal) * 1e-2
 
-                # Rescale each different sample
-                if balance == "bysample":  # tot_sig = tot_ttbar = qcd = dy
+                # Rescale each different sample. Scale such that total weight is 2*total_signal_weight to compare similar methods
+                if balance == "bysample_legacy":  # tot_sig = tot_ttbar = qcd = dy
                     if sample.sample.isSignal:
-                        pass
+                        weights = weights / 2
                     elif "ttbar" in sample_name:
-                        weights = weights / total_ttbar_weight * total_signal_weight
+                        weights = weights / total_ttbar_weight * total_signal_weight / 2.0
                     else:  # qcd, dy
-                        weights = weights * total_signal_weight / np.sum(weights)
+                        weights = weights * total_signal_weight / np.sum(weights) / 2.0
+
+                elif (
+                    balance == "bysample"
+                ):  # each of 8 samples has same weight, 1/4 of signal weight
+                    weights = weights * total_signal_weight / np.sum(weights) / 4.0
+
+                elif (
+                    balance == "bysample_aggregate_ttbar"
+                ):  # leave TTBar together, hh = he = hm = qcd = dy = ttbar, each has 1/3 of signal weight
+                    if sample.sample.isSignal:
+                        weights = weights * total_signal_weight / np.sum(weights) / 3.0
+                    elif "ttbar" in sample_name:
+                        weights = weights / total_ttbar_weight * total_signal_weight / 3.0
+                    else:  # qcd, dy
+                        weights = weights * total_signal_weight / np.sum(weights) / 3.0
+
                 elif balance == "bysigbkg":  # tot_sig = tot_bkg
                     if sample.sample.isSignal:
                         pass
@@ -258,7 +333,7 @@ class Trainer:
             X,
             y,
             weights,
-            test_size=0.8,
+            test_size=self.bdt_config[self.modelname]["test_size"],
             random_state=self.bdt_config[self.modelname]["random_seed"],
             stratify=y,
         )
@@ -311,18 +386,22 @@ class Trainer:
             print(e)
         return self.bst
 
-    def evaluate_training(self):
+    def evaluate_training(self, savedir=None):
         # Load evaluation results from JSON
         with (self.model_dir / "evals_result.json").open("r") as f:
             evals_result = json.load(f)
 
-        plt.figure(figsize=(10, 6))
+        savedir = self.model_dir if savedir is None else Path(savedir)
+        savedir.mkdir(parents=True, exist_ok=True)
+
+        plt.figure(figsize=(10, 8))
         plt.plot(evals_result["train"][self.hyperpars["eval_metric"]], label="Train")
         plt.plot(evals_result["eval"][self.hyperpars["eval_metric"]], label="Validation")
         plt.xlabel("Iteration")
         plt.ylabel(self.hyperpars["eval_metric"])
+        plt.tight_layout()
         plt.legend()
-        plt.savefig(self.model_dir / "training_history.png")
+        plt.savefig(savedir / "training_history.png")
         plt.close()
 
         # Plot feature importance
@@ -330,7 +409,7 @@ class Trainer:
         xgb.plot_importance(self.bst, max_num_features=20)
         plt.title("Feature Importance")
         plt.tight_layout()
-        plt.savefig(self.model_dir / "feature_importance.png")
+        plt.savefig(savedir / "feature_importance.png")
         plt.close()
 
     def complete_train(self, training_info=True, force_reload=False, **kwargs):
@@ -355,17 +434,20 @@ class Trainer:
         self.prepare_training_set(**kwargs)
         self.load_model(**kwargs)
         self.compute_rocs()
-        self.evaluate_training()
 
-        # add other info: precision, accuracy, other metrics
+    def compute_rocs(self, discs=None, savedir=None):
 
-    def compute_rocs(self, discs=None):
+        y_pred = self.bst.predict(self.dval)
 
-        y_pred = self.bst.predict(self.dval, output_margin=False)
+        savedir = self.model_dir if savedir is None else Path(savedir)
+        savedir.mkdir(parents=True, exist_ok=True)
 
         # TODO: de-hardcode this
         sigs_strs = {"hh": 0, "he": 1, "hm": 2}
         bg_strs = {"QCD": [4], "all": [3, 4, 5, 6, 7]}
+
+        # store some metrics for the various samples. for now only auc
+        summary = {"auc": {sig: {} for sig in sigs_strs}}
 
         if not hasattr(self, "rocs"):
             self.rocs = {}
@@ -392,11 +474,8 @@ class Trainer:
                         where=(sig_score + bg_scores != 0),
                     )
 
-                    # print(score[sig_truth])
-                    # print(score[self.dval.get_label() == 3])
-
-                    (self.model_dir / "scores").mkdir(parents=True, exist_ok=True)
-                    (self.model_dir / "outputs").mkdir(parents=True, exist_ok=True)
+                    (savedir / "scores").mkdir(parents=True, exist_ok=True)
+                    (savedir / "outputs").mkdir(parents=True, exist_ok=True)
 
                     plotting.plot_hist(
                         [disc_score[sig_truth]]
@@ -409,7 +488,7 @@ class Trainer:
                         lumi=f"{np.sum([hh_vars.LUMI[year] for year in self.years]) / 1000:.1f}",
                         density=True,
                         year="-".join(self.years) if len(self.years) < 4 else "2022-2023",
-                        saveas=self.model_dir / f"scores/bdt_scores_{sig}_{bg}.png",
+                        saveas=savedir / f"scores/bdt_scores_{sig}_{bg}.png",
                     )
 
                     # exclude events that are not signal or background
@@ -419,8 +498,9 @@ class Trainer:
                     weights_all = weights.copy()
                     weights = weights[mask]
                     fpr, tpr, thresholds = roc_curve(truth, disc_score, sample_weight=weights)
-                    # print(fpr, tpr, thresholds)
                     roc_auc = auc(fpr, tpr)
+
+                    summary["auc"][sig][bg] = roc_auc
 
                     self.rocs[sig][bg] = {
                         "fpr": fpr,
@@ -431,12 +511,12 @@ class Trainer:
                     }
 
                 # Plot ROC curve
-                (self.model_dir / "rocs").mkdir(parents=True, exist_ok=True)
+                (savedir / "rocs").mkdir(parents=True, exist_ok=True)
                 plotting.multiROCCurve(
                     {"": {b: self.rocs[sig][b] for b in bg_strs}},
                     thresholds=[0.3, 0.5, 0.9, 0.99],
                     show=True,
-                    plot_dir=self.model_dir / "rocs",
+                    plot_dir=savedir / "rocs",
                     lumi=f"{np.sum([hh_vars.LUMI[year] for year in self.years]) / 1000:.1f}",
                     year="-".join(self.years) if len(self.years) < 4 else "2022-2023",
                     name=f"roc_{sig}",
@@ -447,7 +527,8 @@ class Trainer:
                 plotting.plot_hist(
                     [y_pred[self.dval.get_label() == i, _s] for _s in range(len(self.classes))],
                     [self.samples[self.classes[_s]].label for _s in range(len(self.classes))],
-                    nbins=60,
+                    nbins=100,
+                    xlim=(0, 1),
                     weights=[
                         weights_all[self.dval.get_label() == i] for _s in range(len(self.classes))
                     ],
@@ -455,123 +536,154 @@ class Trainer:
                     lumi=f"{np.sum([hh_vars.LUMI[year] for year in self.years]) / 1000:.1f}",
                     density=True,
                     year="-".join(self.years) if len(self.years) < 4 else "2022-2023",
-                    saveas=self.model_dir / f"outputs/bdt_outputs_{sample}.png",
+                    saveas=savedir / f"outputs/bdt_outputs_{sample}.png",
                 )
 
-    def study_rescaling(self, output_dir: str = "rescaling_study") -> dict:
-        """Study the impact of different rescaling rules on BDT performance.
+        return summary
 
-        Args:
-            output_dir: Directory to save study results
 
-        Returns:
-            Dictionary containing study results for each rescaling rule
-        """
-        # Create output directory
-        study_dir = Path(output_dir)
-        study_dir.mkdir(parents=True, exist_ok=True)
+def study_rescaling(output_dir: str = "rescaling_study") -> dict:
+    """Study the impact of different rescaling rules on BDT performance.
 
-        # Define rescaling rules to study
-        scale_rules = ["signal", "bkg", "fixed"]
-        balance_rules = ["bysigbkg", "bysample"]
+    Args:
+        output_dir: Directory to save study results
 
-        results = {}
+    Returns:
+        Dictionary containing study results for each rescaling rule
+    """
+    # Create output directory
+    trainer = Trainer(years=["2022"], modelname="28May25_baseline", model_dir=output_dir)
+    trainer.load_data(force_reload=True)
 
-        # Train models with different rescaling rules
+    # Define rescaling rules to study
+    scale_rules = ["signal", "signal_1e-1", "signal_1e-2"]
+    balance_rules = ["bysigbkg", "bysample_legacy", "bysample", "bysample_aggregate_ttbar"]
+
+    results = {}
+
+    # Train models with different rescaling rules
+    for scale_rule in scale_rules:
+        for balance_rule in balance_rules:
+            print(f"\nTraining with scale_rule={scale_rule}, balance_rule={balance_rule}")
+
+            # Create subdirectory for this configuration
+            config_dir = trainer.model_dir / f"{scale_rule}_{balance_rule}"
+            config_dir.mkdir(exist_ok=True)
+
+            # Force reload data and train new model
+            trainer.prepare_training_set(train=True, scale_rule=scale_rule, balance=balance_rule)
+            trainer.train_model()
+            summary = trainer.compute_rocs(savedir=config_dir)
+            trainer.evaluate_training(savedir=config_dir)
+            results[f"{scale_rule}_{balance_rule}"] = summary
+
+            # Save model and plots
+            trainer.bst.save_model(config_dir / "model.json")
+
+    _rescaling_comparison(results, trainer.model_dir)
+    return results
+
+
+def _rescaling_comparison(results: dict, model_dir: Path) -> None:
+    """comparison of different rescaling rules.
+
+    Args:
+        results: Dictionary containing study results
+        study_dir: Directory to save comparison plots
+    """
+    # Get unique scale and balance rules
+    scale_rules = list(results.keys())
+    balance_rules = list(results[scale_rules[0]].keys())
+
+    # Create a 2D table for each signal channel
+    for sig in ["hh", "he", "hm"]:
+        # Create 2D table data
+        table_data = []
         for scale_rule in scale_rules:
+            row = [scale_rule]  # First column is scale rule
             for balance_rule in balance_rules:
-                print(f"\nTraining with scale_rule={scale_rule}, balance_rule={balance_rule}")
+                # Get AUC value, or "-" if not available
+                try:
+                    auc_value = results[scale_rule][balance_rule]["auc"][sig]["all"]
+                    row.append(f"{auc_value:.3f}")
+                except KeyError:
+                    row.append("-")
+            table_data.append(row)
 
-                # Create subdirectory for this configuration
-                config_dir = study_dir / f"{scale_rule}_{balance_rule}"
-                config_dir.mkdir(exist_ok=True)
+        # Print table with headers
+        print(f"\nAUC scores for {sig} channel:")
+        print(tabulate(table_data, headers=["Scale Rule"] + balance_rules, tablefmt="grid"))
 
-                # Force reload data and train new model
-                self.load_data(force_reload=True)
-                self.prepare_training_set(train=True, scale_rule=scale_rule, balance=balance_rule)
-                self.train_model()
-                self.compute_rocs()
+        # Save table to file
+        with (model_dir / f"auc_table_{sig}.txt").open("w") as f:
+            f.write(f"AUC scores for {sig} channel:\n")
+            f.write(tabulate(table_data, headers=["Scale Rule"] + balance_rules, tablefmt="grid"))
 
-                # Save results
-                results[f"{scale_rule}_{balance_rule}"] = {
-                    "rocs": self.rocs,
-                    "training_history": {
-                        "train": self.bst.evals_result()["train"],
-                        "eval": self.bst.evals_result()["eval"],
-                    },
-                }
 
-                # Save model and plots
-                self.bst.save_model(config_dir / "model.json")
-                self.evaluate_training()
+def eval_bdt_preds(eval_samples: list[str], model: str, save: bool = True):
+    """Evaluate BDT predictions on data.
 
-                # Save configuration
-                with (config_dir / "config.json").open("w") as f:
-                    json.dump(
-                        {
-                            "scale_rule": scale_rule,
-                            "balance_rule": balance_rule,
-                            "hyperparameters": self.hyperpars,
-                        },
-                        f,
-                        indent=2,
-                    )
+    Args:
+        eval_samples: List of sample names to evaluate
+        model: Name of model to use for predictions
 
-        # Compare results
-        self._plot_rescaling_comparison(results, study_dir)
+    One day to be made more flexible (here only integrated with the data you already train on)
+    """
 
-        return results
+    years = ["2022", "2022EE", "2023", "2023BPix"]
 
-    def _plot_rescaling_comparison(self, results: dict, study_dir: Path) -> None:
-        """Plot comparison of different rescaling rules.
+    trainer = Trainer(years=years, sample_names=eval_samples, modelname=model)
+    trainer.load_model()
+    trainer.load_data(force_reload=True)
 
-        Args:
-            results: Dictionary containing study results
-            study_dir: Directory to save comparison plots
-        """
-        # Plot training history comparison
-        plt.figure(figsize=(12, 6))
-        for config, result in results.items():
-            plt.plot(result["training_history"]["eval"]["mlogloss"], label=f"{config} (val)")
-        plt.xlabel("Iteration")
-        plt.ylabel("mlogloss")
-        plt.title("Validation Loss Comparison")
-        plt.legend()
-        plt.savefig(study_dir / "validation_loss_comparison.png")
-        plt.close()
+    evals = {year: {sample_name: {} for sample_name in eval_samples} for year in years}
 
-        # Plot ROC comparison for each signal channel
-        sigs_strs = {"hh": 0, "he": 1, "hm": 2}
-        bg_strs = {"QCD": [4], "all": [3, 4, 5, 6, 7]}
+    for year in years:
+        print(f"processing year: {year}")
+        for sample_name, sample in trainer.samples.items():
 
-        for sig in sigs_strs:
-            plt.figure(figsize=(12, 8))
-            for config, result in results.items():
-                for bg in bg_strs:
-                    roc = result["rocs"][sig][bg]
-                    plt.plot(
-                        roc["fpr"], roc["tpr"], label=f"{config} vs {bg} (AUC: {roc['auc']:.3f})"
-                    )
-            plt.xlabel("False Positive Rate")
-            plt.ylabel("True Positive Rate")
-            plt.title(f"ROC Comparison for {sig} signal")
-            plt.legend()
-            plt.grid(True)
-            plt.savefig(study_dir / f"roc_comparison_{sig}.png")
-            plt.close()
+            dsample = xgb.DMatrix(
+                np.concatenate(
+                    [
+                        sample.get_var(feat)
+                        for feat in trainer.train_vars["misc"]["feats"]
+                        + trainer.train_vars["fatjet"]["feats"]
+                    ],
+                    axis=1,
+                )
+            )
 
-        # Save summary statistics
-        summary = {}
-        for config, result in results.items():
-            summary[config] = {
-                "final_val_loss": result["training_history"]["eval"]["mlogloss"][-1],
-                "auc_scores": {
-                    sig: {bg: result["rocs"][sig][bg]["auc"] for bg in bg_strs} for sig in sigs_strs
-                },
-            }
+            y_pred = trainer.bst.predict(dsample).to_numpy()
+            evals[year][sample_name] = y_pred
 
-        with (study_dir / "summary.json").open("w") as f:
-            json.dump(summary, f, indent=2)
+            if save:
+                # Create predictions directory if it doesn't exist
+                pred_dir = (
+                    trainer.data_path[year][sample.get_type()]
+                    / year
+                    / "BDT_predictions"
+                    / sample_name
+                )
+                pred_dir.mkdir(parents=True, exist_ok=True)
+                np.save(pred_dir / f"{model}_preds.npy", y_pred)
+
+    return evals
+
+
+def parse_years(years_str):
+    """Parse years input flexibly.
+    Args:
+        years_str: Can be:
+            - "all" for all years
+            - A list of years (e.g. ["2022", "2023"])
+            - A single year (e.g. "2022")
+    """
+    if years_str == "all":
+        return ["2022", "2022EE", "2023", "2023BPix"]
+    elif isinstance(years_str, list):
+        return years_str
+    else:
+        raise ValueError(f"Invalid years input: {years_str}")
 
 
 if __name__ == "__main__":
@@ -579,7 +691,12 @@ if __name__ == "__main__":
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Train a multiclass BDT model")
 
-    parser.add_argument("--years", type=list[str], default=["2022"], help="Year of data to use")
+    parser.add_argument(
+        "--years",
+        nargs="+",
+        default=["2022"],
+        help="Year(s) of data to use. Can be: 'all', or multiple years (e.g. --years 2022 2023 2024)",
+    )
     parser.add_argument(
         "--model", type=str, default="test", help="Name of the model configuration to use"
     )
@@ -596,6 +713,18 @@ if __name__ == "__main__":
         default=False,
         help="Study the impact of different rescaling rules on BDT performance",
     )
+    parser.add_argument(
+        "--eval-bdt-preds",
+        action="store_true",
+        default=False,
+        help="Evaluate BDT predictions on data if specified",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        help="Directory containing data to evaluate BDT predictions on",
+        required="--eval-bdt-preds" in sys.argv,
+    )
 
     # Add mutually exclusive group for train/load
     group = parser.add_mutually_exclusive_group()
@@ -603,11 +732,16 @@ if __name__ == "__main__":
     group.add_argument("--load", action="store_true", default=True, help="Load model from file")
 
     args = parser.parse_args()
-    trainer = Trainer(args.years, args.model)
 
     if args.study_rescaling:
-        trainer.study_rescaling()
+        study_rescaling()
         exit()
+
+    if args.eval_bdt_preds:
+        eval_bdt_preds(args.data_dir, args.model)
+        exit()
+
+    trainer = Trainer(args.years, args.model)
 
     if args.train:
         trainer.complete_train(force_reload=args.force_reload)
