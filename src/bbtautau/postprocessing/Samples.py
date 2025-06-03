@@ -125,6 +125,7 @@ SAMPLES = {
 SIGNALS = ["bbtt", "vbfbbtt", "vbfbbtt-k2v0"]
 SIGNALS_CHANNELS = SIGNALS.copy()
 
+# TODO Check this
 sig_keys_ggf = ["bbtt"]
 sig_keys_vbf = ["vbfbbtt-k2v0"]
 

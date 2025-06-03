@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
-import sys
+import os
 from pathlib import Path
 from typing import ClassVar
 
@@ -34,10 +35,21 @@ from bbtautau.postprocessing.utils import LoadedSample
 # - early stopping
 
 
+# Some global variables
+
+DATA_DIR = Path(
+    "/ceph/cms/store/user/lumori/bbtautau"
+)  # default directory for saving BDT predictions
+CLASSIFIER_DIR = Path(
+    "/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/"
+)  # default directory for saving trained models
+
+
 class Trainer:
 
     loaded_dmatrix = False
 
+    # Default samples for training
     sample_names: ClassVar[list[str]] = [
         "qcd",
         "ttbarhad",
@@ -47,10 +59,16 @@ class Trainer:
         "bbtt",
     ]
 
-    def __init__(self, years, sample_names=None, modelname=None, model_dir=None) -> None:
+    def __init__(
+        self,
+        years: list[str],
+        sample_names: list[str] = None,
+        modelname: str = None,
+        model_dir: str = None,
+    ) -> None:
         if years[0] == "all":
             print("Using all years")
-            years = ["2022", "2022EE", "2023", "2023BPix"]
+            years = hh_vars.years
         else:
             years = list(years)
         self.years = years
@@ -106,20 +124,17 @@ class Trainer:
                 ),
             },
         }
-        self.bdt_config = bdt_config
 
-        if modelname is not None:
-            self.modelname = modelname
-        else:
-            self.modelname = "test"
+        self.modelname = modelname
+        self.bdt_config = bdt_config
+        self.train_vars = self.bdt_config[self.modelname]["train_vars"]
 
         if model_dir is not None:
-            self.model_dir = Path(
-                f"/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/{model_dir}"
-            )
+            self.model_dir = CLASSIFIER_DIR / model_dir
         else:
-            self.model_dir = Path(
-                f"/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/trained_models/{self.modelname}_{('-'.join(self.years) if len(self.years) < 4 else 'all')}"
+            self.model_dir = (
+                CLASSIFIER_DIR
+                / f"trained_models/{self.modelname}_{('-'.join(self.years) if self.years != hh_vars.years else 'all')}"
             )
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
@@ -174,8 +189,53 @@ class Trainer:
             return df
         return df.sample(n=N, random_state=seed)
 
-    def prepare_training_set(self, train=False, scale_rule="signal", balance="bysigbkg"):
-        """Prepare features and labels using LabelEncoder for multiclass classification."""
+    @staticmethod
+    def record_stats(stats, stage, year, sample_name, weights):
+        stats.append(
+            {
+                "year": year,
+                "sample": sample_name,
+                "stage": stage,
+                "n_events": len(weights),
+                "total_weight": np.sum(weights),
+                "average_weight": np.mean(weights),
+                "std_weight": np.std(weights),
+            }
+        )
+        return stats
+
+    @staticmethod
+    def save_stats(stats, filename):
+        """Save weight statistics to a CSV file"""
+        with Path.open(filename, "w") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "year",
+                    "sample",
+                    "stage",
+                    "n_events",
+                    "total_weight",
+                    "average_weight",
+                    "std_weight",
+                ]
+            )
+            writer.writerows(stats)
+
+    def prepare_training_set(self, save_buffer=False, scale_rule="signal", balance="bysigbkg"):
+        """Prepare features and labels using LabelEncoder for multiclass classification.
+
+        Args:
+            train (bool, optional): Whether to prepare data for training. If true, will save a buffer file with training and eval files for quicker loading. Defaults to False.
+            scale_rule (str, optional): Rule for global scaling weights. Can be 'signal' (average signal event weight = 1), 'signal_1e-1', or 'signal_1e-2'. Defaults to 'signal'.
+            balance (str, optional): Rule for balancing samples. Can be
+            - 'bysigbkg' : total signal weight = total background weight
+            - 'bysample_legacy' : tot_sig = tot_ttbar = qcd = dy
+            - 'bysample' : each of 8 samples has same weight, 1/4 of signal weight
+            - 'bysample_aggregate_ttbar' : leave TTBar together, hh = he = hm = qcd = dy = ttbar, each has 1/3 of signal weight
+            Defaults to 'bysigbkg'.
+            Total weight = 2*tot_sig
+        """
 
         if scale_rule not in ["signal", "signal_1e-1", "signal_1e-2"]:
             raise ValueError(f"Invalid scale rule: {scale_rule}")
@@ -185,7 +245,6 @@ class Trainer:
 
         # Get hyperparameters and training variables from config
         self.hyperpars = self.bdt_config[self.modelname]["hyperpars"]
-        self.train_vars = self.bdt_config[self.modelname]["train_vars"]
 
         # Initialize lists for features, labels, and weights
         X_list = []
@@ -199,8 +258,13 @@ class Trainer:
             self.classes = self.label_encoder.classes_
             return
 
+        # Store weight statistics for each year
+        weight_stats = []
+
         # Process each sample
         for year in self.years:
+
+            # Store weights for rescaling purposes
             total_signal_weight = np.concatenate(
                 [
                     np.abs(self.events_dict[year][sig_sample].get_var("finalWeight"))
@@ -222,7 +286,6 @@ class Trainer:
                     if self.samples[bkg_sample].isBackground
                 ]
             ).sum()
-
             len_signal = sum(
                 [
                     len(self.events_dict[year][sig_sample].events)
@@ -230,54 +293,24 @@ class Trainer:
                     if self.samples[sig_sample].isSignal
                 ]
             )
-            len_bkg = sum(
-                [
-                    len(self.events_dict[year][bkg_sample].events)
-                    for bkg_sample in self.samples
-                    if self.samples[bkg_sample].isBackground
-                ]
-            )
-            len_ttbar = sum(
-                [
-                    len(self.events_dict[year][ttbar_sample].events)
-                    for ttbar_sample in self.samples
-                    if "ttbar" in ttbar_sample
-                ]
-            )
-
-            print(f"year: {year}")
-
-            print("total_signal_weight", total_signal_weight)
-            print("total_bkg_weight", total_bkg_weight)
-            print("total_ttbar_weight", total_ttbar_weight)
-
-            print("average signal weight", total_signal_weight / len_signal)
-            print("average bkg weight", total_bkg_weight / len_bkg)
-            print("average ttbar weight", total_ttbar_weight / len_ttbar)
-
-            print("--------------------------------")
+            feats = self.train_vars["misc"]["feats"] + self.train_vars["fatjet"]["feats"]
 
             for sample_name, sample in self.events_dict[year].items():
 
-                X_sample = pd.DataFrame(
-                    {
-                        feat: sample.get_var(feat)
-                        for feat in self.train_vars["misc"]["feats"]
-                        + self.train_vars["fatjet"]["feats"]
-                    }
-                )
+                X_sample = pd.DataFrame({feat: sample.get_var(feat) for feat in feats})
 
                 weights = np.abs(sample.get_var("finalWeight").copy())
+                self.record_stats(weight_stats, "Initial", year, sample.label, weights)
 
-                # Rescale all weights based on rule
-                if (
-                    scale_rule == "signal"
-                ):  # rescale by average signal weight, so median signal event has weight 1, .1 or .01
+                # rescale by average signal weight, so median signal event has weight 1, .1 or .01
+                if scale_rule == "signal":
                     weights = weights / (total_signal_weight / len_signal)
                 elif scale_rule == "signal_1e-1":
                     weights = weights / (total_signal_weight / len_signal) * 1e-1
                 elif scale_rule == "signal_1e-2":
                     weights = weights / (total_signal_weight / len_signal) * 1e-2
+
+                self.record_stats(weight_stats, "Global rescaling", year, sample.label, weights)
 
                 # Rescale each different sample. Scale such that total weight is 2*total_signal_weight to compare similar methods
                 if balance == "bysample_legacy":  # tot_sig = tot_ttbar = qcd = dy
@@ -287,12 +320,10 @@ class Trainer:
                         weights = weights / total_ttbar_weight * total_signal_weight / 2.0
                     else:  # qcd, dy
                         weights = weights * total_signal_weight / np.sum(weights) / 2.0
-
                 elif (
                     balance == "bysample"
                 ):  # each of 8 samples has same weight, 1/4 of signal weight
                     weights = weights * total_signal_weight / np.sum(weights) / 4.0
-
                 elif (
                     balance == "bysample_aggregate_ttbar"
                 ):  # leave TTBar together, hh = he = hm = qcd = dy = ttbar, each has 1/3 of signal weight
@@ -302,17 +333,20 @@ class Trainer:
                         weights = weights / total_ttbar_weight * total_signal_weight / 3.0
                     else:  # qcd, dy
                         weights = weights * total_signal_weight / np.sum(weights) / 3.0
-
                 elif balance == "bysigbkg":  # tot_sig = tot_bkg
                     if sample.sample.isSignal:
                         pass
                     else:
                         weights = weights * (total_signal_weight / total_bkg_weight)
 
+                self.record_stats(weight_stats, "Balance rescaling", year, sample.label, weights)
+
                 X_list.append(X_sample)
                 weights_list.append(weights)
 
                 sample_names_labels.extend([sample_name] * len(sample.events))
+
+        self.save_stats(weight_stats, self.model_dir / "weight_stats.csv")
 
         # Combine all samples
         X = pd.concat(X_list, axis=0)
@@ -345,18 +379,12 @@ class Trainer:
         self.dval = xgb.DMatrix(X_val, label=y_val, weight=weights_val, nthread=-1)
 
         # save buffer for quicker loading
-        if train:
+        if save_buffer:
             self.dtrain.save_binary(self.model_dir / "dtrain.buffer")
             self.dval.save_binary(self.model_dir / "dval.buffer")
 
-    def train_model(self):
+    def train_model(self, save=True, early_stopping_rounds=5):
         """Trains BDT. ``classifier_params`` are hyperparameters for the classifier"""
-
-        # early_stopping_callback = xgb.callback.EarlyStopping(rounds=5, min_delta=0.0)
-        # classifier_params = {
-        #     **self.bdt_config[self.modelname]["hyperpars"],
-        #     "callbacks": [early_stopping_callback],
-        # }
 
         evals_result = {}
 
@@ -367,8 +395,10 @@ class Trainer:
             self.bdt_config[self.modelname]["num_rounds"],
             evals=evallist,
             evals_result=evals_result,
+            early_stopping_rounds=early_stopping_rounds,
         )
-        self.bst.save_model(self.model_dir / f"{self.modelname}.json")
+        if save:
+            self.bst.save_model(self.model_dir / f"{self.modelname}.json")
 
         # Save evaluation results as JSON
         with (self.model_dir / "evals_result.json").open("w") as f:
@@ -401,15 +431,26 @@ class Trainer:
         plt.ylabel(self.hyperpars["eval_metric"])
         plt.tight_layout()
         plt.legend()
-        plt.savefig(savedir / "training_history.png")
+        plt.savefig(savedir / "training_history.pdf")
         plt.close()
 
-        # Plot feature importance
-        plt.figure(figsize=(12, 8))
-        xgb.plot_importance(self.bst, max_num_features=20)
-        plt.title("Feature Importance")
+        # Create triple plot for feature importance
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 8))
+
+        # Plot weight-based importance
+        xgb.plot_importance(self.bst, importance_type="weight", ax=ax1)
+        ax1.set_title("Feature Importance (Weight)")
+
+        # Plot gain-based importance
+        xgb.plot_importance(self.bst, importance_type="gain", ax=ax2)
+        ax2.set_title("Feature Importance (Gain)")
+
+        # Plot total gain-based importance
+        xgb.plot_importance(self.bst, importance_type="total_gain", ax=ax3)
+        ax3.set_title("Feature Importance (Total Gain)")
+
         plt.tight_layout()
-        plt.savefig(savedir / "feature_importance.png")
+        plt.savefig(savedir / "feature_importance.pdf")
         plt.close()
 
     def complete_train(self, training_info=True, force_reload=False, **kwargs):
@@ -423,7 +464,7 @@ class Trainer:
 
         # out-of-the-box for training
         self.load_data(force_reload=force_reload, **kwargs)
-        self.prepare_training_set(train=True, **kwargs)
+        self.prepare_training_set(save_buffer=True, **kwargs)
         self.train_model(**kwargs)
         if training_info:
             self.evaluate_training()
@@ -488,7 +529,7 @@ class Trainer:
                         lumi=f"{np.sum([hh_vars.LUMI[year] for year in self.years]) / 1000:.1f}",
                         density=True,
                         year="-".join(self.years) if len(self.years) < 4 else "2022-2023",
-                        saveas=savedir / f"scores/bdt_scores_{sig}_{bg}.png",
+                        saveas=savedir / f"scores/bdt_scores_{sig}_{bg}.pdf",
                     )
 
                     # exclude events that are not signal or background
@@ -536,7 +577,7 @@ class Trainer:
                     lumi=f"{np.sum([hh_vars.LUMI[year] for year in self.years]) / 1000:.1f}",
                     density=True,
                     year="-".join(self.years) if len(self.years) < 4 else "2022-2023",
-                    saveas=savedir / f"outputs/bdt_outputs_{sample}.png",
+                    saveas=savedir / f"outputs/bdt_outputs_{sample}.pdf",
                 )
 
         return summary
@@ -544,6 +585,7 @@ class Trainer:
 
 def study_rescaling(output_dir: str = "rescaling_study") -> dict:
     """Study the impact of different rescaling rules on BDT performance.
+    For now give little flexibility, but is not meant to be customized too much.
 
     Args:
         output_dir: Directory to save study results
@@ -570,17 +612,19 @@ def study_rescaling(output_dir: str = "rescaling_study") -> dict:
             config_dir = trainer.model_dir / f"{scale_rule}_{balance_rule}"
             config_dir.mkdir(exist_ok=True)
 
+            # Override model_dir to save in subdirectory
+            trainer.model_dir = config_dir
+
             # Force reload data and train new model
-            trainer.prepare_training_set(train=True, scale_rule=scale_rule, balance=balance_rule)
+            trainer.prepare_training_set(
+                save_buffer=False, scale_rule=scale_rule, balance=balance_rule
+            )
             trainer.train_model()
             summary = trainer.compute_rocs(savedir=config_dir)
             trainer.evaluate_training(savedir=config_dir)
             results[f"{scale_rule}_{balance_rule}"] = summary
 
-            # Save model and plots
-            trainer.bst.save_model(config_dir / "model.json")
-
-    _rescaling_comparison(results, trainer.model_dir)
+    _rescaling_comparison(results, output_dir)
     return results
 
 
@@ -620,7 +664,9 @@ def _rescaling_comparison(results: dict, model_dir: Path) -> None:
             f.write(tabulate(table_data, headers=["Scale Rule"] + balance_rules, tablefmt="grid"))
 
 
-def eval_bdt_preds(eval_samples: list[str], model: str, save: bool = True):
+def eval_bdt_preds(
+    years: list[str], eval_samples: list[str], model: str, save: bool = True, save_dir: str = None
+):
     """Evaluate BDT predictions on data.
 
     Args:
@@ -630,60 +676,55 @@ def eval_bdt_preds(eval_samples: list[str], model: str, save: bool = True):
     One day to be made more flexible (here only integrated with the data you already train on)
     """
 
-    years = ["2022", "2022EE", "2023", "2023BPix"]
+    years = hh_vars.years if years[0] == "all" else list(years)
 
-    trainer = Trainer(years=years, sample_names=eval_samples, modelname=model)
-    trainer.load_model()
-    trainer.load_data(force_reload=True)
+    if eval_samples[0] == "all":
+        eval_samples = list(SAMPLES.keys())
+
+    if save:
+        if save_dir is None:
+            save_dir = DATA_DIR
+
+        # check if save_dir is writable
+        if not os.access(save_dir, os.W_OK):
+            raise PermissionError(f"Directory {save_dir} is not writable")
+
+    # Load model globally for all years, evaluate by year to reduce memory usage
+    bst = Trainer(years=years, sample_names=eval_samples, modelname=model).load_model()
 
     evals = {year: {sample_name: {} for sample_name in eval_samples} for year in years}
 
     for year in years:
-        print(f"processing year: {year}")
-        for sample_name, sample in trainer.samples.items():
 
+        # To reduce memory usage, load model and data for each year
+        trainer = Trainer(years=[year], sample_names=eval_samples, modelname=model)
+        trainer.load_data(force_reload=True)
+
+        for sample_name in trainer.events_dict[year]:
+
+            feats = trainer.train_vars["misc"]["feats"] + trainer.train_vars["fatjet"]["feats"]
             dsample = xgb.DMatrix(
-                np.concatenate(
-                    [
-                        sample.get_var(feat)
-                        for feat in trainer.train_vars["misc"]["feats"]
-                        + trainer.train_vars["fatjet"]["feats"]
-                    ],
+                np.stack(
+                    [trainer.events_dict[year][sample_name].get_var(feat) for feat in feats],
                     axis=1,
-                )
+                ),
+                feature_names=feats,
             )
 
-            y_pred = trainer.bst.predict(dsample).to_numpy()
+            # Use global model to predict
+            y_pred = bst.predict(dsample)
             evals[year][sample_name] = y_pred
 
             if save:
-                # Create predictions directory if it doesn't exist
-                pred_dir = (
-                    trainer.data_path[year][sample.get_type()]
-                    / year
-                    / "BDT_predictions"
-                    / sample_name
-                )
+                pred_dir = Path(save_dir) / "BDT_predictions" / year / sample_name
                 pred_dir.mkdir(parents=True, exist_ok=True)
                 np.save(pred_dir / f"{model}_preds.npy", y_pred)
 
+            print(f"Processed sample {sample_name} for year {year}")
+
+        del trainer
+
     return evals
-
-
-def parse_years(years_str):
-    """Parse years input flexibly.
-    Args:
-        years_str: Can be:
-            - "all" for all years
-            - A list of years (e.g. ["2022", "2023"])
-            - A single year (e.g. "2022")
-    """
-    if years_str == "all":
-        return ["2022", "2022EE", "2023", "2023BPix"]
-    elif isinstance(years_str, list):
-        return years_str
-    else:
-        raise ValueError(f"Invalid years input: {years_str}")
 
 
 if __name__ == "__main__":
@@ -698,10 +739,13 @@ if __name__ == "__main__":
         help="Year(s) of data to use. Can be: 'all', or multiple years (e.g. --years 2022 2023 2024)",
     )
     parser.add_argument(
-        "--model", type=str, default="test", help="Name of the model configuration to use"
+        "--model", type=str, default=None, help="Name of the model configuration to use"
     )
     parser.add_argument(
-        "--save-dir", type=str, default=None, help="Directory to save model and plots"
+        "--save-dir",
+        type=str,
+        default=None,
+        help="Subdirectory to save model and plots within `/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/` if training/evaluating. Full directory to store predictions if --eval-bdt-preds is specified (checks writing permissions).",
     )
     parser.add_argument(
         "--force-reload", action="store_true", default=False, help="Force reload of data"
@@ -720,10 +764,7 @@ if __name__ == "__main__":
         help="Evaluate BDT predictions on data if specified",
     )
     parser.add_argument(
-        "--data-dir",
-        type=str,
-        help="Directory containing data to evaluate BDT predictions on",
-        required="--eval-bdt-preds" in sys.argv,
+        "--samples", nargs="+", default=None, help="Samples to evaluate BDT predictions on"
     )
 
     # Add mutually exclusive group for train/load
@@ -738,10 +779,20 @@ if __name__ == "__main__":
         exit()
 
     if args.eval_bdt_preds:
-        eval_bdt_preds(args.data_dir, args.model)
+        if not args.samples:
+            parser.error("--eval-bdt-preds requires --samples to be specified.")
+        else:
+            eval_bdt_preds(
+                years=args.years,
+                eval_samples=args.samples,
+                model=args.model,
+                save_dir=args.save_dir,
+            )
         exit()
 
-    trainer = Trainer(args.years, args.model)
+    trainer = Trainer(
+        years=args.years, sample_names=args.samples, modelname=args.model, model_dir=args.save_dir
+    )
 
     if args.train:
         trainer.complete_train(force_reload=args.force_reload)

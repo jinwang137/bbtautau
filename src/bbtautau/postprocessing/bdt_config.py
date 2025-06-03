@@ -17,7 +17,7 @@ bdt_config = {
             "num_class": 8,
             # "device": "cuda",
         },
-        "num_rounds": 20,
+        "num_rounds": 30,
         "test_size": 0.8,
         "random_seed": 42,
         "train_vars": {

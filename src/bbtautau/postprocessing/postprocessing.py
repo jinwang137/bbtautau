@@ -732,7 +732,7 @@ def bbtautau_assignment(
                 + sample.get_var(f"ak8FatJetParTX{sig_labels[1]}")
                 + sample.get_var(f"ak8FatJetParTX{sig_labels[2]}")
             )
-            denom = num + sample.get_var("ak8FatJetParTQCD") + sample.get_var("ak8FatJetParTTop")
+            denom = num + sample.get_var("ak8FatJetParTQCD")
             combined_score = np.divide(num, denom, out=np.zeros_like(num), where=(num + denom) != 0)
             tautau_pick = np.argmax(combined_score, axis=1)
         else:
