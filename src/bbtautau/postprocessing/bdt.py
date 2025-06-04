@@ -300,7 +300,7 @@ class Trainer:
                 X_sample = pd.DataFrame({feat: sample.get_var(feat) for feat in feats})
 
                 weights = np.abs(sample.get_var("finalWeight").copy())
-                self.record_stats(weight_stats, "Initial", year, sample.label, weights)
+                self.record_stats(weight_stats, "Initial", year, sample.sample.label, weights)
 
                 # rescale by average signal weight, so median signal event has weight 1, .1 or .01
                 if scale_rule == "signal":
@@ -310,7 +310,9 @@ class Trainer:
                 elif scale_rule == "signal_1e-2":
                     weights = weights / (total_signal_weight / len_signal) * 1e-2
 
-                self.record_stats(weight_stats, "Global rescaling", year, sample.label, weights)
+                self.record_stats(
+                    weight_stats, "Global rescaling", year, sample.sample.label, weights
+                )
 
                 # Rescale each different sample. Scale such that total weight is 2*total_signal_weight to compare similar methods
                 if balance == "bysample_legacy":  # tot_sig = tot_ttbar = qcd = dy
@@ -339,7 +341,9 @@ class Trainer:
                     else:
                         weights = weights * (total_signal_weight / total_bkg_weight)
 
-                self.record_stats(weight_stats, "Balance rescaling", year, sample.label, weights)
+                self.record_stats(
+                    weight_stats, "Balance rescaling", year, sample.sample.label, weights
+                )
 
                 X_list.append(X_sample)
                 weights_list.append(weights)
@@ -584,6 +588,7 @@ class Trainer:
 
 
 def study_rescaling(output_dir: str = "rescaling_study") -> dict:
+    # TODO: decide what to do with input_dir
     """Study the impact of different rescaling rules on BDT performance.
     For now give little flexibility, but is not meant to be customized too much.
 
@@ -775,6 +780,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.study_rescaling:
+        # TODO check adn print a note that other arguments are ignored if specified
         study_rescaling()
         exit()
 
