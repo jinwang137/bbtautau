@@ -1,24 +1,41 @@
 from __future__ import annotations
 
+# start_time = time.time()
 import argparse
 import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
+# mid_time = time.time()
+# print(f"Time taken for block 1: {mid_time - start_time} seconds")
 import matplotlib.pyplot as plt
 import mplhep as hep
 import numpy as np
 import pandas as pd
-import postprocessing
+
+# mid_time = time.time()
+# print(f"Time taken for block 2: {mid_time - start_time} seconds")
 from boostedhh import hh_vars, plotting
 from boostedhh.utils import PAD_VAL
 from joblib import Parallel, delayed
 from matplotlib.lines import Line2D
+from postprocessing import (
+    bbtautau_assignment,
+    delete_columns,
+    derive_variables,
+    get_columns,
+    load_bdt_preds,
+    load_samples,
+    trigger_filter,
+)
 from Samples import CHANNELS
 from sklearn.metrics import roc_curve
 
 from bbtautau.HLTs import HLTs
+
+# mid_time = time.time()
+# print(f"Time taken for block 3: {mid_time - start_time} seconds")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("boostedhh.utils")
@@ -26,6 +43,9 @@ logger.setLevel(logging.DEBUG)
 
 plt.style.use(hep.style.CMS)
 hep.style.use("CMS")
+
+# end_time = time.time()
+# print(f"Time taken for import setup: {end_time - start_time} seconds")
 
 # Global variables
 MAIN_DIR = Path("/home/users/lumori/bbtautau/")
@@ -80,7 +100,7 @@ def fom2(b, s, _tf):
 
 
 class Analyser:
-    def __init__(self, years, channel_key, test_mode, useBDT, modelname):
+    def __init__(self, years, channel_key, test_mode, use_bdt, modelname):
         self.channel = CHANNELS[channel_key]
         self.years = years
         self.test_mode = test_mode
@@ -88,50 +108,57 @@ class Analyser:
         self.plot_dir = Path(MAIN_DIR) / f"plots/SensitivityStudy/{TODAY}/{test_dir}/{channel_key}"
         self.plot_dir.mkdir(parents=True, exist_ok=True)
 
-        # TODO we should get rid of this linw
+        # TODO we should get rid of this line
         self.sig_key = SIG_KEYS[channel_key]
 
         self.taukey = CHANNELS[channel_key].tagger_label
 
         self.events_dict = {year: {} for year in years}
 
-        self.useBDT = useBDT
+        self.use_bdt = use_bdt
         self.modelname = modelname
 
-    def load_year(self, year):
+    def load_data(self):
 
         # This could be improved by adding channel-by-channel granularity
         # Now filter just requires that any trigger in that year fires
-        filters_dict = postprocessing.trigger_filter(
-            HLTs.hlts_list_by_dtype(year),
-            year,
-            fast_mode=self.test_mode,
-            PNetXbb_cut=0.8 if not self.test_mode else None,
-        )  # = {"data": [(...)], "signal": [(...)], ...}
 
-        columns = postprocessing.get_columns(year, self.channel)
+        for year in self.years:
+            filters_dict = trigger_filter(
+                HLTs.hlts_list_by_dtype(year),
+                year,
+                fast_mode=self.test_mode,
+                PNetXbb_cut=0.8 if not self.test_mode else None,
+            )  # = {"data": [(...)], "signal": [(...)], ...}
 
-        self.events_dict[year] = postprocessing.load_samples(
-            year,
-            self.channel,
-            data_paths[year],
-            filters_dict=filters_dict,
-            load_columns=columns,
-            load_just_bbtt=True,
-            loaded_samples=True,
-        )
-        self.events_dict[year] = postprocessing.apply_triggers(
-            self.events_dict[year], year, self.channel
-        )
-        self.events_dict[year] = postprocessing.delete_columns(
-            self.events_dict[year], year, self.channel
-        )
+            columns = get_columns(year)
 
-        if self.useBDT:
-            postprocessing.load_bdt_preds(
-                self.events_dict[year], year, BDT_EVAL_DIR, modelname=self.modelname, all_outs=True
+            self.events_dict[year] = load_samples(
+                year=year,
+                paths=data_paths[year],
+                channels=[self.channel],
+                filters_dict=filters_dict,
+                load_columns=columns,
+                load_just_ggf=True,
+                restrict_data_to_channel=True,
+                loaded_samples=True,
             )
 
+            self.events_dict[year] = delete_columns(self.events_dict[year], year, [self.channel])
+
+            derive_variables(
+                self.events_dict[year], CHANNELS["hm"]
+            )  # legacy issue, muon branches are misnamed
+            bbtautau_assignment(self.events_dict[year], agnostic=True)
+
+            if self.use_bdt:
+                load_bdt_preds(
+                    self.events_dict[year],
+                    year,
+                    BDT_EVAL_DIR,
+                    modelname=self.modelname,
+                    all_outs=True,
+                )
         return
 
     def build_tagger_dict(self):
@@ -160,7 +187,7 @@ class Analyser:
                     tvars[f"X{disc}vsQCD"][:, 2][nojet3] = PAD_VAL
                     tvars[f"X{disc}vsQCDTop"][:, 2][nojet3] = PAD_VAL
 
-                if self.useBDT:
+                if self.use_bdt:
                     tvars[f"BDTScore{self.taukey}vsQCD"] = np.nan_to_num(
                         sample.events[f"BDTScore{self.taukey}"]
                         / (sample.events[f"BDTScore{self.taukey}"] + sample.events["BDTScoreQCD"]),
@@ -293,7 +320,7 @@ class Analyser:
             plotting.multiROCCurve(
                 {"": {k: self.rocs["_".join(years)][jet][k] for k in list_disc}},
                 title=title,
-                thresholds=[0.3, 0.7, 0.9, 0.95, 0.99, 0.998],
+                thresholds=[0.3, 0.7, 0.9, 0.95, 0],
                 show=True,
                 plot_dir=self.plot_dir / "rocs",
                 lumi=f"{np.sum([hh_vars.LUMI[year] for year in years]) / 1000:.1f}",
@@ -425,11 +452,11 @@ class Analyser:
                     self.taggers_dict[year][key]["XbbvsQCD"],
                     self.taggers_dict[year][key]["bb_mask"],
                 )
-                if self.useBDT:
-                    self.txtts[year][key] = self.get_jet_vals(
-                        self.taggers_dict[year][key][f"BDTScore{self.taukey}vsQCD"],
-                        self.taggers_dict[year][key]["tautau_mask"],
-                    )
+                if self.use_bdt:
+                    # BDT is evaluated directly on the tagged jet
+                    self.txtts[year][key] = self.taggers_dict[year][key][
+                        f"BDTScore{self.taukey}vsQCD"
+                    ]
                 else:
                     self.txtts[year][key] = self.get_jet_vals(
                         self.taggers_dict[year][key][f"X{self.taukey}vsQCDTop"],
@@ -596,7 +623,7 @@ class Analyser:
             sigs, bgs, tfs = np.vectorize(sig_bg)(BBcut, TTcut)
         else:
             # Run in parallel
-            results = Parallel(n_jobs=-1, verbose=1)(
+            results = Parallel(n_jobs=-4, verbose=1)(
                 delayed(sig_bg)(b, t) for b, t in zip(bbcut_flat, ttcut_flat)
             )
             # results is a list of (sig, bkg, tf) tuples
@@ -674,7 +701,7 @@ class Analyser:
             ax.set_xlabel("Xbb vs QCD cut")
             ax.set_ylabel(
                 f"XBDTScore{self.taukey} vs QCD cut"
-                if self.useBDT
+                if self.use_bdt
                 else f"X{self.taukey} vs QCDTop cut"
             )
             cbar = plt.colorbar(sigmap, ax=ax)
@@ -693,7 +720,7 @@ class Analyser:
             )
 
             plot_path = self.plot_dir / (
-                "sig_bkg_opt" + f"_BDT_{self.modelname}" if self.useBDT else "sig_bkg_opt"
+                "sig_bkg_opt" + f"_BDT_{self.modelname}" if self.use_bdt else "sig_bkg_opt"
             )
             plot_path.mkdir(parents=True, exist_ok=True)
 
@@ -823,11 +850,11 @@ def analyse_channel(
     actions=None,
     b_vals=None,
 ):
+
     print(f"Processing channel: {channel}. Test mode: {test_mode}.")
     analyser = Analyser(years, channel, test_mode, use_bdt, modelname)
 
-    for year in years:
-        analyser.load_year(year)
+    analyser.load_data()
     analyser.build_tagger_dict()
 
     if actions is None:
@@ -846,7 +873,7 @@ def analyse_channel(
         for B_max in b_vals:
             result = analyser.sig_bkg_opt(
                 years,
-                gridlims=(0.8, 1),
+                gridlims=(0.8, 1) if use_bdt else (0.6, 1.0),
                 gridsize=5 if test_mode else 40,
                 B_max=B_max,
                 plot=True,
@@ -882,6 +909,7 @@ def analyse_channel(
         analyser.sig_bkg_opt(years, gridsize=20, gridlims=(0.8, 1), B=1, plot=False, use_abcd=True)
         end_new = time.perf_counter()
         print(f"sig_bkg_opt (parallel): {end_new - start_new:.3f} seconds")
+
     del analyser
 
 
@@ -908,7 +936,7 @@ if __name__ == "__main__":
         help="Run in test mode (reduced data size)",
     )
     parser.add_argument(
-        "--use-bdt", action="store_true", default=False, help="Use BDT for sensitivity study"
+        "--use_bdt", action="store_true", default=False, help="Use BDT for sensitivity study"
     )
     parser.add_argument(
         "--modelname",
