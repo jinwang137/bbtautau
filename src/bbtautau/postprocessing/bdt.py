@@ -10,10 +10,18 @@ from typing import ClassVar
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import postprocessing
 import xgboost as xgb
 from bdt_config import bdt_config
 from boostedhh import hh_vars, plotting, utils
+from postprocessing import (
+    base_filters_default,
+    bbtautau_assignment,
+    delete_columns,
+    derive_variables,
+    get_columns,
+    load_samples,
+    trigger_filter,
+)
 from Samples import CHANNELS, SAMPLES
 from sklearn.metrics import (
     auc,
@@ -152,7 +160,7 @@ class Trainer:
         else:
             for year in self.years:
 
-                filters_dict = postprocessing.trigger_filter(
+                filters_dict = trigger_filter(
                     HLTs.hlts_list_by_dtype(year),
                     year,
                     fast_mode=False,
@@ -163,9 +171,9 @@ class Trainer:
 
                 # filters_dict = None
 
-                columns = postprocessing.get_columns(year)
+                columns = get_columns(year)
 
-                self.events_dict[year] = postprocessing.load_samples(
+                self.events_dict[year] = load_samples(
                     year=year,
                     paths=self.data_path[year],
                     samples=self.samples,
@@ -176,14 +184,14 @@ class Trainer:
                     load_bgs=True,
                     loaded_samples=True,
                 )
-                self.events_dict[year] = postprocessing.delete_columns(
+                self.events_dict[year] = delete_columns(
                     self.events_dict[year], year, channels=list(CHANNELS.values())
                 )
 
-                postprocessing.derive_variables(
+                derive_variables(
                     self.events_dict[year], CHANNELS["hm"]
                 )  # legacy issue, muon branches are misnamed
-                postprocessing.bbtautau_assignment(self.events_dict[year], agnostic=True)
+                bbtautau_assignment(self.events_dict[year], agnostic=True)
 
     def load_data_old(self, base_filters=True, force_reload=False):
         # Check if data buffer file exists
@@ -204,19 +212,19 @@ class Trainer:
             for year in self.years:
                 for key, sample in self.samples.items():
                     if sample.selector is not None:
-                        sample.load_columns = postprocessing.get_columns(year)[sample.get_type()]
+                        sample.load_columns = get_columns(year)[sample.get_type()]
                         events = utils.load_sample(
                             sample,
                             year,
                             self.data_path[year],
-                            postprocessing.base_filters_default if base_filters else None,
+                            base_filters_default if base_filters else None,
                         )
                         self.events_dict[year][key] = LoadedSample(sample=sample, events=events)
                         print(f"Successfully imported sample {sample.label} (key: {key}) to memory")
-                postprocessing.derive_variables(
+                derive_variables(
                     self.events_dict[year], CHANNELS["hm"]
                 )  # legacy issue, muon branches are misnamed
-                postprocessing.bbtautau_assignment(self.events_dict[year], agnostic=True)
+                bbtautau_assignment(self.events_dict[year], agnostic=True)
 
             for ch, channel in CHANNELS.items():
                 for year in self.years:
@@ -226,7 +234,7 @@ class Trainer:
                             self.events_dict[year]["bbtt"].get_var(f"GenTau{ch}")
                         ],
                     )
-                    postprocessing.bbtautau_assignment(
+                    bbtautau_assignment(
                         self.events_dict[year], channel
                     )  # overwrites jet assignment in signal channels
                 self.samples[f"bbtt{ch}"] = SAMPLES[f"bbtt{ch}"]
@@ -829,7 +837,6 @@ def eval_bdt_preds(
             # Use global model to predict
             y_pred = bst.predict(dsample)
             evals[year][sample_name] = y_pred
-
             if save:
                 pred_dir = Path(save_dir) / "BDT_predictions" / year / sample_name
                 pred_dir.mkdir(parents=True, exist_ok=True)

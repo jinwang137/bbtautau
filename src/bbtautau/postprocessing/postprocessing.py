@@ -21,18 +21,22 @@ import hist
 import matplotlib as mpl
 import numpy as np
 import pandas as pd
+import xgboost as xgb
+from bdt_config import bdt_config
 from boostedhh import hh_vars, utils
 from boostedhh.hh_vars import data_key
 from boostedhh.utils import PAD_VAL, Sample, ShapeVar, add_bool_arg
 from hist import Hist
+from joblib import Parallel, delayed
 
 import bbtautau.postprocessing.utils as putils
 from bbtautau.bbtautau_utils import Channel
 from bbtautau.HLTs import HLTs
 from bbtautau.postprocessing import Regions, Samples, plotting
-from bbtautau.postprocessing.bdt import eval_bdt_preds
 from bbtautau.postprocessing.Samples import CHANNELS, SAMPLES, SIGNALS
 from bbtautau.postprocessing.utils import LoadedSample
+
+# from bbtautau.postprocessing.bdt import eval_bdt_preds
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("boostedhh.utils")
@@ -178,12 +182,13 @@ def main(args: argparse.Namespace):
     # dictionary that will contain all information (from all samples)
     events_dict = load_samples(
         args.year,
-        CHANNEL,
         data_paths,
+        [CHANNEL],
         load_data=True,
         load_bgs=True,
         filters_dict=filters,
         loaded_samples=True,
+        multithread=True,
     )
 
     cutflow = utils.Cutflow(samples=events_dict)
@@ -203,8 +208,10 @@ def main(args: argparse.Namespace):
     if args.use_bdt:
         print("Predict BDT at inference")
         time_start = time.time()
-        eval_bdt_preds(
-            years=[args.year], eval_samples=args.sigs + args.bgs, model=args.model, save=False
+        compute_bdt_preds(
+            data=events_dict,
+            modelname=args.model,
+            model_dir=args.model_dir,
         )
         time_end = time.time()
         print(f"Time taken to predict BDT: {time_end - time_start} seconds")
@@ -418,6 +425,7 @@ def load_samples(
     load_data: bool = True,
     load_just_ggf: bool = False,
     loaded_samples: bool = False,
+    multithread: bool = False,
 ) -> dict[str, LoadedSample | pd.DataFrame]:
     """
     Loads and preprocesses physics event samples for a given year and analysis channel.
@@ -503,7 +511,6 @@ def load_samples(
 
     else:
         print("Note: samples are provided. Ignoring load_samples kwargs load_bgs, load_data.")
-    print("Loading samples", samples.keys())
 
     if restrict_data_to_channel:
         # remove unnecessary data samples
@@ -515,39 +522,74 @@ def load_samples(
     signals = Samples.SIGNALS.copy()
 
     if load_just_ggf:  # quite ad hoc but should become obsolete
-        if "vbfbbtt-k2v0" in samples:
-            del samples["vbfbbtt-k2v0"]
-        if "vbfbbtt-k2v0" in signals:
-            signals.remove("vbfbbtt-k2v0")
-        if "vbfbbtt" in samples:
-            del samples["vbfbbtt"]
         if "vbfbbtt" in signals:
             signals.remove("vbfbbtt")
+        if "vbfbbtt-k2v0" in signals:
+            signals.remove("vbfbbtt-k2v0")
+
+        if "vbfbbtt-k2v0" in samples:
+            del samples["vbfbbtt-k2v0"]
+        if "vbfbbtt" in samples:
+            del samples["vbfbbtt"]
+
+        for ch in CHANNELS:
+            if f"vbfbbtt-k2v0{ch}" in samples:
+                del samples[f"vbfbbtt-k2v0{ch}"]
+            if f"vbfbbtt{ch}" in samples:
+                del samples[f"vbfbbtt{ch}"]
+
+    print("Loading samples", samples.keys())
 
     # load only the specified columns
     if load_columns is not None:
         for sample in samples.values():
             sample.load_columns = load_columns[sample.get_type()]
 
-    # load samples
-    for key, sample in samples.items():
-
-        filters = filters_dict[sample.get_type()] if filters_dict is not None else None
-
-        if sample.selector is not None:
-
-            events = utils.load_sample(
-                sample,
-                year,
-                paths,
-                filters,
+    if multithread:
+        if not loaded_samples:
+            warnings.warn(
+                "Deprecation warning: Switch to using the LoadedSample class. Loading failed.",
+                stacklevel=1,
             )
-            print("Loaded sample", key, "in year", year)
+            return None
 
-            if not loaded_samples:
-                events_dict[key] = events
-            else:
-                events_dict[key] = LoadedSample(sample=sample, events=events)
+        data_ = Parallel(n_jobs=len(samples))(
+            delayed(LoadedSample)(
+                sample=sample,
+                events=utils.load_sample(
+                    sample,
+                    year,
+                    paths,
+                    filters_dict[sample.get_type()] if filters_dict is not None else None,
+                ),
+            )
+            for sample in samples.values()
+            if sample.selector is not None
+        )
+
+        keys = [key for key, sample in samples.items() if sample.selector is not None]
+        events_dict = dict(zip(keys, data_))
+
+    else:
+        # load samples (legacy)
+        for key, sample in samples.items():
+
+            filters = filters_dict[sample.get_type()] if filters_dict is not None else None
+
+            if sample.selector is not None:
+
+                events = utils.load_sample(
+                    sample,
+                    year,
+                    paths,
+                    filters,
+                )
+                print("Loaded sample", key, "in year", year)
+
+                if not loaded_samples:
+                    events_dict[key] = events
+                else:
+                    events_dict[key] = LoadedSample(sample=sample, events=events)
 
     # keep only the specified bbtt channels
     for channel in channels:
@@ -912,9 +954,9 @@ def _add_bdt_scores(
         events[f"BDTScore{jshift}"] = sample_bdt_preds
     else:
         # bg_tot = np.sum(sample_bdt_preds[:, 3:], axis=1)
-        hh_score = sample_bdt_preds[:, 0]  # TODO could be de-hardcoded
-        hm_score = sample_bdt_preds[:, 1]
-        he_score = sample_bdt_preds[:, 2]
+        he_score = sample_bdt_preds[:, 0]  # TODO could be de-hardcoded
+        hh_score = sample_bdt_preds[:, 1]
+        hm_score = sample_bdt_preds[:, 2]
 
         events[f"BDTScoretauhtauh{jshift}"] = hh_score  # / (hh_score + bg_tot)
         events[f"BDTScoretauhtaum{jshift}"] = hm_score  # / (hm_score + bg_tot)
@@ -943,9 +985,54 @@ def _add_bdt_scores(
                     + events["BDTScoreTThad"]
                     + events["BDTScoreTTll"]
                     + events["BDTScoreTTSL"]
+                    + events["BDTScoreDY"]
                 ),
                 nan=PAD_VAL,
             )
+
+
+def compute_bdt_preds(
+    data: dict[str, dict[str, LoadedSample]],
+    modelname: str,
+    model_dir: Path,
+) -> dict[str, dict[str, np.ndarray]]:
+    """Compute BDT predictions for multiple years and samples.
+
+    This function loads a trained XGBoost model and uses it to make predictions on multiple
+    years and samples of data. The input data is expected to be organized by year and sample name.
+
+    Args:
+        data: Dictionary mapping years to dictionaries of samples. Each sample should be a LoadedSample
+            object containing the features needed for prediction.
+        model_path: Path to the trained XGBoost model file (.json)
+        feature_names: List of feature names to use for prediction. These must be accessible via
+            the get_var() method of each LoadedSample.
+
+    Returns:
+        dict: Nested dictionary containing predictions for each year and sample:
+            {year: {sample_name: predictions_array}}
+
+    """
+
+    bst = xgb.Booster()
+    bst.load_model(model_dir / f"{modelname}.json")
+    feature_names = (
+        bdt_config[modelname]["train_vars"]["misc"]["feats"]
+        + bdt_config[modelname]["train_vars"]["fatjet"]["feats"]
+    )
+
+    for year in data:
+        for sample_name in data[year]:
+            dsample = xgb.DMatrix(
+                np.stack(
+                    [data[year][sample_name].get_var(feat) for feat in feature_names],
+                    axis=1,
+                ),
+                feature_names=feature_names,
+            )
+
+            y_pred = bst.predict(dsample)
+            _add_bdt_scores(data[year][sample_name].events, y_pred, multiclass=True, all_outs=True)
 
 
 def load_bdt_preds(
@@ -989,7 +1076,7 @@ def load_bdt_preds(
 
         bdt_preds = np.load(pred_file)
         multiclass = len(bdt_preds.shape) > 1
-        _add_bdt_scores(loaded_sample.events, bdt_preds, multiclass, all_outs)
+        putils._add_bdt_scores(loaded_sample.events, bdt_preds, multiclass, all_outs)
 
         # if jec_jmsr_shifts and sample != data_key:
         #     for jshift in jec_shifts + jmsr_shifts:
@@ -1542,7 +1629,7 @@ def parse_args(parser=None):
         type=str,
     )
 
-    add_bool_arg(parser, "use-bdt", "Use BDT for sensitivity study", default=False)
+    add_bool_arg(parser, "use_bdt", "Use BDT for sensitivity study", default=False)
 
     parser.add_argument(
         "--model",

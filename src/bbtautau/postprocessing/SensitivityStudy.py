@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from joblib import Parallel, delayed
 from matplotlib.lines import Line2D
 from postprocessing import (
     bbtautau_assignment,
+    compute_bdt_preds,
     delete_columns,
     derive_variables,
     get_columns,
@@ -50,7 +52,7 @@ hep.style.use("CMS")
 # Global variables
 MAIN_DIR = Path("/home/users/lumori/bbtautau/")
 BDT_EVAL_DIR = Path("/ceph/cms/store/user/lumori/bbtautau/BDT_predictions/")
-TODAY = "25Jun3"  # to name output folder
+TODAY = "25Jun10"  # to name output folder
 SIG_KEYS = {"hh": "bbtthh", "he": "bbtthe", "hm": "bbtthm"}  # TODO Generalize for other signals
 
 data_dir_2022 = "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal"
@@ -100,7 +102,7 @@ def fom2(b, s, _tf):
 
 
 class Analyser:
-    def __init__(self, years, channel_key, test_mode, use_bdt, modelname):
+    def __init__(self, years, channel_key, test_mode, use_bdt, modelname, at_inference=False):
         self.channel = CHANNELS[channel_key]
         self.years = years
         self.test_mode = test_mode
@@ -117,6 +119,13 @@ class Analyser:
 
         self.use_bdt = use_bdt
         self.modelname = modelname
+        self.at_inference = at_inference
+
+        # TODO This is very hardcoded. Need to fix
+        self.model_dir = (
+            Path(MAIN_DIR)
+            / f"src/bbtautau/postprocessing/classifier/trained_models/{self.modelname}_{('-'.join(self.years) if self.years != hh_vars.years else 'all')}"
+        )
 
     def load_data(self):
 
@@ -142,6 +151,7 @@ class Analyser:
                 load_just_ggf=True,
                 restrict_data_to_channel=True,
                 loaded_samples=True,
+                multithread=True,
             )
 
             self.events_dict[year] = delete_columns(self.events_dict[year], year, [self.channel])
@@ -152,16 +162,30 @@ class Analyser:
             bbtautau_assignment(self.events_dict[year], agnostic=True)
 
             if self.use_bdt:
-                load_bdt_preds(
-                    self.events_dict[year],
-                    year,
-                    BDT_EVAL_DIR,
-                    modelname=self.modelname,
-                    all_outs=True,
-                )
+                if self.at_inference:
+                    # evaluate bdt at inference time
+                    compute_bdt_preds(
+                        data=self.events_dict,
+                        model_dir=self.model_dir,
+                        modelname=self.modelname,
+                    )
+                    print("BDT predictions computed at inference time")
+                    print(self.events_dict[year][self.sig_key].get_var("BDTScoreQCD"))
+                    print(self.events_dict[year][self.sig_key].get_var("BDTScoreTTSL"))
+                    print(self.events_dict[year][self.sig_key].get_var("BDTScoreDY"))
+
+                else:
+                    load_bdt_preds(
+                        self.events_dict[year],
+                        year,
+                        BDT_EVAL_DIR,
+                        modelname=self.modelname,
+                        all_outs=True,
+                    )
         return
 
     def build_tagger_dict(self):
+        # Deprecated
         # TODO integrate wiht postprocessing scripts
         self.taggers_dict = {year: {} for year in self.years}
         for year in self.years:
@@ -194,7 +218,7 @@ class Analyser:
                         nan=PAD_VAL,
                     )
 
-                    tvars[f"BDTScore{self.taukey}vsQCDTop"] = np.nan_to_num(
+                    tvars[f"BDTScore{self.taukey}vsAll"] = np.nan_to_num(
                         sample.events[f"BDTScore{self.taukey}"]
                         / (
                             sample.events[f"BDTScore{self.taukey}"]
@@ -202,6 +226,7 @@ class Analyser:
                             + sample.events["BDTScoreTThad"]
                             + sample.events["BDTScoreTTll"]
                             + sample.events["BDTScoreTTSL"]
+                            + sample.events["BDTScoreDY"]
                         ),
                         nan=PAD_VAL,
                     )
@@ -232,25 +257,36 @@ class Analyser:
                 self.taggers_dict[year][key] = tvars
 
     @staticmethod
-    def get_jet_vals(vals, mask):
+    def get_jet_vals(vals, mask, nan_to_pad=True):
         # check if vals is a numpy array
         if not isinstance(vals, np.ndarray):
             vals = vals.to_numpy()
-        return vals[mask]
+        if len(vals.shape) == 1:
+            warnings.warn(
+                f"vals is a numpy array of shape {vals.shape}. Ignoring mask.", stacklevel=2
+            )
+            return vals if not nan_to_pad else np.nan_to_num(vals, nan=PAD_VAL)
+        if nan_to_pad:
+            return np.nan_to_num(vals[mask], nan=PAD_VAL)
+        else:
+            return vals[mask]
 
     def compute_rocs(self, years, jets=None, discs=None):
         if set(years) != set(self.years):
             raise ValueError(f"Years {years} not in {self.years}")
         if jets is None:
-            jets = ["bb", "tautau"]
+            jets = ["bb", "tt"]
         if discs is None:
             discs = [
-                "XbbvsQCD",
-                "XbbvsQCDTop",
-                f"X{self.taukey}vsQCD",
-                f"X{self.taukey}vsQCDTop",
-                "PNetXbbvsQCD",
+                "ak8FatJetParTXbbvsQCD",
+                "ak8FatJetParTXbbvsQCDTop",
+                "ak8FatJetPNetXbbvsQCDLegacy",
+                f"ak8FatJetParTX{self.taukey}vsQCD",
+                f"ak8FatJetParTX{self.taukey}vsQCDTop",
             ]
+            if self.use_bdt:
+                discs.append(f"BDTScore{self.taukey}vsQCD")
+                discs.append(f"BDTScore{self.taukey}vsAll")
         if not hasattr(self, "rocs"):
             self.rocs = {}
         self.rocs["_".join(years)] = {jet: {} for jet in jets}
@@ -259,8 +295,8 @@ class Analyser:
                 bg_scores = np.concatenate(
                     [
                         self.get_jet_vals(
-                            self.taggers_dict[year][key][disc],
-                            self.taggers_dict[year][key][f"{jet}_mask"],
+                            self.events_dict[year][key].get_var(disc),
+                            self.events_dict[year][key].get_mask(jet),
                         )
                         for key in self.channel.data_samples
                         for year in years
@@ -268,7 +304,7 @@ class Analyser:
                 )
                 bg_weights = np.concatenate(
                     [
-                        self.events_dict[year][key].events["finalWeight"]
+                        self.events_dict[year][key].get_var("finalWeight")
                         for key in self.channel.data_samples
                         for year in years
                     ]
@@ -277,14 +313,14 @@ class Analyser:
                 sig_scores = np.concatenate(
                     [
                         self.get_jet_vals(
-                            self.taggers_dict[year][self.sig_key][disc],
-                            self.taggers_dict[year][self.sig_key][f"{jet}_mask"],
+                            self.events_dict[year][self.sig_key].get_var(disc),
+                            self.events_dict[year][self.sig_key].get_mask(jet),
                         )
                         for year in years
                     ]
                 )
                 sig_weights = np.concatenate(
-                    [self.events_dict[year][self.sig_key].events["finalWeight"] for year in years]
+                    [self.events_dict[year][self.sig_key].get_var("finalWeight") for year in years]
                 )
 
                 fpr, tpr, thresholds = roc_curve(
@@ -306,13 +342,23 @@ class Analyser:
     def plot_rocs(self, years):
         if not hasattr(self, "rocs") or "_".join(years) not in self.rocs:
             print(f"No ROC curves computed yet in years {years}")
-        for jet, title in zip(["bb", "tautau"], ["bb FatJet", rf"{self.channel.label} FatJet"]):
 
+        for jet, title in zip(["bb", "tt"], ["bb FatJet", rf"{self.channel.label} FatJet"]):
             # Choose which curves to plot
             if jet == "bb":
-                list_disc = ["XbbvsQCD", "XbbvsQCDTop", "PNetXbbvsQCD"]
+                list_disc = [
+                    "ak8FatJetParTXbbvsQCD",
+                    "ak8FatJetParTXbbvsQCDTop",
+                    "ak8FatJetPNetXbbvsQCDLegacy",
+                ]
             else:
-                list_disc = [f"X{self.taukey}vsQCD", f"X{self.taukey}vsQCDTop"]
+                list_disc = [
+                    f"ak8FatJetParTX{self.taukey}vsQCD",
+                    f"ak8FatJetParTX{self.taukey}vsQCDTop",
+                ]
+                if self.use_bdt:
+                    list_disc.append(f"BDTScore{self.taukey}vsQCD")
+                    list_disc.append(f"BDTScore{self.taukey}vsAll")
 
             # create rocs directory if it doesn't exist
             (self.plot_dir / "rocs").mkdir(parents=True, exist_ok=True)
@@ -320,7 +366,7 @@ class Analyser:
             plotting.multiROCCurve(
                 {"": {k: self.rocs["_".join(years)][jet][k] for k in list_disc}},
                 title=title,
-                thresholds=[0.3, 0.7, 0.9, 0.95, 0],
+                thresholds=[0.7, 0.9, 0.95, 0.99],
                 show=True,
                 plot_dir=self.plot_dir / "rocs",
                 lumi=f"{np.sum([hh_vars.LUMI[year] for year in years]) / 1000:.1f}",
@@ -347,12 +393,12 @@ class Analyser:
             fig, axs = plt.subplots(1, 2, figsize=(24, 10))
 
             for i, (jet, jlabel) in enumerate(
-                zip(["bb", "tautau"], ["bb FatJet", rf"{self.channel.label} FatJet"])
+                zip(["bb", "tt"], ["bb FatJet", rf"{self.channel.label} FatJet"])
             ):
                 ax = axs[i]
                 if key == "hhbbtt":
                     mask = np.concatenate(
-                        [self.taggers_dict[year][self.sig_key][f"{jet}_mask"] for year in years],
+                        [self.events_dict[year][self.sig_key].get_mask(jet) for year in years],
                         axis=0,
                     )
                 else:
@@ -449,30 +495,30 @@ class Analyser:
         for year in years:
             for key in [self.sig_key] + self.channel.data_samples:
                 self.txbbs[year][key] = self.get_jet_vals(
-                    self.taggers_dict[year][key]["XbbvsQCD"],
-                    self.taggers_dict[year][key]["bb_mask"],
+                    self.events_dict[year][key].get_var("ak8FatJetParTXbbvsQCD"),
+                    self.events_dict[year][key].get_mask("bb"),
                 )
                 if self.use_bdt:
                     # BDT is evaluated directly on the tagged jet
-                    self.txtts[year][key] = self.taggers_dict[year][key][
+                    self.txtts[year][key] = self.events_dict[year][key].get_var(
                         f"BDTScore{self.taukey}vsQCD"
-                    ]
+                    )
                 else:
                     self.txtts[year][key] = self.get_jet_vals(
-                        self.taggers_dict[year][key][f"X{self.taukey}vsQCDTop"],
-                        self.taggers_dict[year][key]["tautau_mask"],
+                        self.events_dict[year][key].get_var(f"ak8FatJetParTX{self.taukey}vsQCDTop"),
+                        self.events_dict[year][key].get_mask("tt"),
                     )
                 self.masstt[year][key] = self.get_jet_vals(
-                    self.events_dict[year][key].events[f"ak8FatJet{mttk}"],
-                    self.taggers_dict[year][key]["tautau_mask"],
+                    self.events_dict[year][key].get_var(f"ak8FatJet{mttk}"),
+                    self.events_dict[year][key].get_mask("tt"),
                 )
                 self.massbb[year][key] = self.get_jet_vals(
-                    self.events_dict[year][key].events[f"ak8FatJet{mbbk}"],
-                    self.taggers_dict[year][key]["bb_mask"],
+                    self.events_dict[year][key].get_var(f"ak8FatJet{mbbk}"),
+                    self.events_dict[year][key].get_mask("bb"),
                 )
                 self.ptbb[year][key] = self.get_jet_vals(
-                    self.events_dict[year][key].events["ak8FatJetPt"],
-                    self.taggers_dict[year][key]["bb_mask"],
+                    self.events_dict[year][key].get_var("ak8FatJetPt"),
+                    self.events_dict[year][key].get_mask("bb"),
                 )
 
     def compute_sig_bg(self, years, txbbcut, txttcut, mbb1, mbb2, mbbw2, mtt1, mtt2):
@@ -525,21 +571,23 @@ class Analyser:
                     cut = (
                         (self.txbbs[year][key] > txbbcut)
                         & (self.txtts[year][key] > txttcut)
-                        & (self.masstt[year][key] > mtt1)
-                        & (self.masstt[year][key] < mtt2)
                         & (self.massbb[year][key] > mbb1)
                         & (self.massbb[year][key] < mbb2)
                         & (self.ptbb[year][key] > 250)
                     )
+                    if not self.use_bdt:
+                        cut &= (self.masstt[year][key] > mtt1) & (self.masstt[year][key] < mtt2)
+
                     sig_pass += np.sum(self.events_dict[year][key].events["finalWeight"][cut])
                 else:  # compute background
                     cut_bg_pass = (
                         (self.txbbs[year][key] > txbbcut)
                         & (self.txtts[year][key] > txttcut)
-                        & (self.masstt[year][key] > mtt1)
-                        & (self.masstt[year][key] < mtt2)
                         & (self.ptbb[year][key] > 250)
                     )
+                    if not self.use_bdt:
+                        cut &= (self.masstt[year][key] > mtt1) & (self.masstt[year][key] < mtt2)
+
                     msb1 = (self.massbb[year][key] > (mbb1 - mbbw2)) & (
                         self.massbb[year][key] < mbb1
                     )
@@ -553,11 +601,13 @@ class Analyser:
                         self.events_dict[year][key].events["finalWeight"][cut_bg_pass & msb2]
                     )
                     cut_bg_fail = (
-                        ((self.txbbs[year][key] < txbbcut) | (self.txtts[year][key] < txttcut))
-                        & (self.masstt[year][key] > mtt1)
-                        & (self.masstt[year][key] < mtt2)
-                        & (self.ptbb[year][key] > 250)
-                    )
+                        (self.txbbs[year][key] < txbbcut) | (self.txtts[year][key] < txttcut)
+                    ) & (self.ptbb[year][key] > 250)
+                    if not self.use_bdt:
+                        cut_bg_fail &= (self.masstt[year][key] > mtt1) & (
+                            self.masstt[year][key] < mtt2
+                        )
+
                     bg_fail += np.sum(
                         self.events_dict[year][key].events["finalWeight"][cut_bg_fail & msb1]
                     )
@@ -566,12 +616,15 @@ class Analyser:
                     )
                     cut_sig_fail = (
                         ((self.txbbs[year][key] < txbbcut) | (self.txtts[year][key] < txttcut))
-                        & (self.masstt[year][key] > mtt1)
-                        & (self.masstt[year][key] < mtt2)
                         & (self.massbb[year][key] > mbb1)
                         & (self.massbb[year][key] < mbb2)
                         & (self.ptbb[year][key] > 250)
                     )
+                    if not self.use_bdt:
+                        cut_sig_fail &= (self.masstt[year][key] > mtt1) & (
+                            self.masstt[year][key] < mtt2
+                        )
+
                     sig_fail += np.sum(
                         self.events_dict[year][key].events["finalWeight"][cut_sig_fail]
                     )
@@ -849,13 +902,14 @@ def analyse_channel(
     use_abcd=True,
     actions=None,
     b_vals=None,
+    at_inference=False,
 ):
 
     print(f"Processing channel: {channel}. Test mode: {test_mode}.")
-    analyser = Analyser(years, channel, test_mode, use_bdt, modelname)
+    analyser = Analyser(years, channel, test_mode, use_bdt, modelname, at_inference)
 
     analyser.load_data()
-    analyser.build_tagger_dict()
+    # analyser.build_tagger_dict()
 
     if actions is None:
         actions = []
@@ -869,11 +923,11 @@ def analyse_channel(
         analyser.prepare_sensitivity(years)
         results = {}
         if b_vals is None:
-            b_vals = [2] if test_mode else [1, 2, 8]
+            b_vals = [2]  # if test_mode else [2, 8]
         for B_max in b_vals:
             result = analyser.sig_bkg_opt(
                 years,
-                gridlims=(0.8, 1) if use_bdt else (0.6, 1.0),
+                gridlims=(0.6, 1) if use_bdt else (0.8, 1.0),
                 gridsize=5 if test_mode else 40,
                 B_max=B_max,
                 plot=True,
@@ -944,6 +998,12 @@ if __name__ == "__main__":
         help="Name of the BDT model to use for sensitivity study",
     )
     parser.add_argument(
+        "--at-inference",
+        action="store_true",
+        default=False,
+        help="Compute BDT predictions at inference time",
+    )
+    parser.add_argument(
         "--actions",
         nargs="+",
         choices=["compute_rocs", "plot_mass", "sensitivity", "time-methods"],
@@ -965,8 +1025,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # check: test-mode and use-bdt are mutually exclusive
-    if args.test_mode and args.use_bdt:
-        raise ValueError("Test mode and use-bdt are mutually exclusive")
+    if args.test_mode and args.use_bdt and not args.at_inference:
+        raise ValueError("Test mode and use-bdt are mutually exclusive unless at-inference is True")
 
     for channel in args.channels:
         analyse_channel(
@@ -978,4 +1038,5 @@ if __name__ == "__main__":
             use_abcd=True,  # temporary. will need to generalize framework
             actions=args.actions,
             b_vals=None,  # TODO: add b_vals
+            at_inference=args.at_inference,
         )
