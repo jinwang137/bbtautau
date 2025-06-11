@@ -52,7 +52,7 @@ hep.style.use("CMS")
 # Global variables
 MAIN_DIR = Path("/home/users/lumori/bbtautau/")
 BDT_EVAL_DIR = Path("/ceph/cms/store/user/lumori/bbtautau/BDT_predictions/")
-TODAY = "25Jun10"  # to name output folder
+TODAY = "25Jun11"  # to name output folder
 SIG_KEYS = {"hh": "bbtthh", "he": "bbtthe", "hm": "bbtthm"}  # TODO Generalize for other signals
 
 data_dir_2022 = "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal"
@@ -137,7 +137,7 @@ class Analyser:
                 HLTs.hlts_list_by_dtype(year),
                 year,
                 fast_mode=self.test_mode,
-                PNetXbb_cut=0.8 if not self.test_mode else None,
+                # PNetXbb_cut=0.8 if not self.test_mode else None,
             )  # = {"data": [(...)], "signal": [(...)], ...}
 
             columns = get_columns(year)
@@ -170,9 +170,6 @@ class Analyser:
                         modelname=self.modelname,
                     )
                     print("BDT predictions computed at inference time")
-                    print(self.events_dict[year][self.sig_key].get_var("BDTScoreQCD"))
-                    print(self.events_dict[year][self.sig_key].get_var("BDTScoreTTSL"))
-                    print(self.events_dict[year][self.sig_key].get_var("BDTScoreDY"))
 
                 else:
                     load_bdt_preds(
@@ -501,7 +498,7 @@ class Analyser:
                 if self.use_bdt:
                     # BDT is evaluated directly on the tagged jet
                     self.txtts[year][key] = self.events_dict[year][key].get_var(
-                        f"BDTScore{self.taukey}vsQCD"
+                        f"BDTScore{self.taukey}vsAll"
                     )
                 else:
                     self.txtts[year][key] = self.get_jet_vals(
@@ -586,7 +583,9 @@ class Analyser:
                         & (self.ptbb[year][key] > 250)
                     )
                     if not self.use_bdt:
-                        cut &= (self.masstt[year][key] > mtt1) & (self.masstt[year][key] < mtt2)
+                        cut_bg_pass &= (self.masstt[year][key] > mtt1) & (
+                            self.masstt[year][key] < mtt2
+                        )
 
                     msb1 = (self.massbb[year][key] > (mbb1 - mbbw2)) & (
                         self.massbb[year][key] < mbb1
@@ -677,7 +676,7 @@ class Analyser:
         else:
             # Run in parallel
             results = Parallel(n_jobs=-4, verbose=1)(
-                delayed(sig_bg)(b, t) for b, t in zip(bbcut_flat, ttcut_flat)
+                delayed(sig_bg)(_b, _t) for _b, _t in zip(bbcut_flat, ttcut_flat)
             )
             # results is a list of (sig, bkg, tf) tuples
 
@@ -753,9 +752,7 @@ class Analyser:
             )
             ax.set_xlabel("Xbb vs QCD cut")
             ax.set_ylabel(
-                f"XBDTScore{self.taukey} vs QCD cut"
-                if self.use_bdt
-                else f"X{self.taukey} vs QCDTop cut"
+                f"BDTScore{self.taukey} vs All" if self.use_bdt else f"X{self.taukey} vs QCDTop cut"
             )
             cbar = plt.colorbar(sigmap, ax=ax)
             cbar.set_label("Signal efficiency" if normalize_sig else "Signal yield")
@@ -923,12 +920,12 @@ def analyse_channel(
         analyser.prepare_sensitivity(years)
         results = {}
         if b_vals is None:
-            b_vals = [2]  # if test_mode else [2, 8]
+            b_vals = [5]  # if test_mode else [2, 8]
         for B_max in b_vals:
             result = analyser.sig_bkg_opt(
                 years,
-                gridlims=(0.6, 1) if use_bdt else (0.8, 1.0),
-                gridsize=5 if test_mode else 40,
+                gridlims=(0.8, 1),
+                gridsize=5 if test_mode else 50,
                 B_max=B_max,
                 plot=True,
                 use_abcd=use_abcd,
