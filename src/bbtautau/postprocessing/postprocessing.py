@@ -163,6 +163,8 @@ def main(args: argparse.Namespace):
         "bg": args.bg_data_dirs,
     }
 
+    print(data_paths)
+
     if args.sigs is None:
         args.sigs = {s + CHANNEL.key: SAMPLES[s + CHANNEL.key] for s in SIGNALS}
 
@@ -209,7 +211,9 @@ def main(args: argparse.Namespace):
         print("Predict BDT at inference")
         time_start = time.time()
         compute_bdt_preds(
-            data=events_dict,
+            data={
+                args.year: events_dict
+            },  # TODO: rationalize the various functions to work either by year or over set of years
             modelname=args.model,
             model_dir=args.model_dir,
         )
@@ -243,44 +247,6 @@ def main(args: argparse.Namespace):
     )
 
 
-def bb_filters(in_filters: list[tuple] = None, num_fatjets: int = 3, bb_cut: float = 0.3):
-    """
-    0.3 corresponds to roughly, 85% signal efficiency, 2% QCD efficiency (pT: 250-400, mSD:0-250, mRegLegacy:40-250)
-    """
-    if in_filters is None:
-        in_filters = base_filters_default
-
-    filters = [
-        ifilter + [(f"('ak8FatJetParTXbbvsQCD', '{n}')", ">=", bb_cut)]
-        for n in range(num_fatjets)
-        for ifilter in in_filters
-    ]
-    return filters
-
-
-def tt_filters(
-    channel: Channel, in_filters: list[tuple] = None, num_fatjets: int = 3, tt_cut: float = 0.9
-):
-    if in_filters is None:
-        in_filters = base_filters_default
-
-    if channel.key == "hm":
-        warnings.warn(
-            "Temporarily applying vsQCD filter only for tauhtaum due to missing keys!", stacklevel=2
-        )
-        tt_cut = 0.05
-        vslabel = "vsQCD"
-    else:
-        vslabel = "vsQCDTop"
-
-    filters = [
-        ifilter + [(f"('ak8FatJetParTX{channel.tagger_label}{vslabel}', '{n}')", ">=", tt_cut)]
-        for n in range(num_fatjets)
-        for ifilter in in_filters
-    ]
-    return filters
-
-
 def base_filter(fast_mode: bool = False):
     """
     Returns the base filters for the data, signal, and background samples.
@@ -291,9 +257,60 @@ def base_filter(fast_mode: bool = False):
         for i in range(len(base_filters)):
             base_filters[i] += [("('ak8FatJetPNetXbbLegacy', '0')", ">=", 0.95)]
 
-    filter_dict = {"data": base_filters, "signal": base_filters, "bg": base_filters}
+    return {"data": base_filters, "signal": base_filters, "bg": base_filters}
 
-    return filter_dict
+
+def bb_filters(
+    in_filters: dict[str, list[tuple]] = None, num_fatjets: int = 3, bb_cut: float = 0.3
+):
+    """
+    0.3 corresponds to roughly, 85% signal efficiency, 2% QCD efficiency (pT: 250-400, mSD:0-250, mRegLegacy:40-250)
+    """
+    if in_filters is None:
+        in_filters = {
+            "data": base_filters_default,
+            "signal": base_filters_default,
+            "bg": base_filters_default,
+        }
+
+    filters = {}
+    for dtype, ifilters_bydtype in in_filters.items():
+        filters[dtype] = [
+            ifilter + [(f"('ak8FatJetParTXbbvsQCD', '{n}')", ">=", bb_cut)]
+            for n in range(num_fatjets)
+            for ifilter in ifilters_bydtype
+        ]
+
+    return filters
+
+
+def tt_filters(
+    channel: Channel,
+    in_filters: dict[str, list[tuple]] = None,
+    num_fatjets: int = 3,
+    tt_cut: float = 0.9,
+):
+    if in_filters is None:
+        in_filters = base_filter()
+
+    if channel.key == "hm":
+        warnings.warn(
+            "Temporarily applying vsQCD filter only for tauhtaum due to missing keys!", stacklevel=2
+        )
+        tt_cut = 0.05
+        vslabel = "vsQCD"
+    else:
+        vslabel = "vsQCDTop"
+
+    filters = {}
+    for dtype, ifilters_bydtype in in_filters.items():
+        filters[dtype] = [
+            ifilter + [(f"('ak8FatJetParTX{channel.tagger_label}{vslabel}', '{n}')", ">=", tt_cut)]
+            for n in range(num_fatjets)
+            for ifilter in ifilters_bydtype
+        ]
+
+    return filters
 
 
 def trigger_filter(
@@ -1638,18 +1655,34 @@ def parse_args(parser=None):
         type=str,
     )
 
+    # TODO handle this with global variables
+    parser.add_argument(
+        "--model-dir",
+        help="Path to the BDT model directory",
+        default="/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/trained_models/28May25_baseline_all",
+        type=str,
+    )
+
     args = parser.parse_args()
+    save_args = deepcopy(args)
+
+    args.model_dir = Path(args.model_dir)
 
     if args.control_plots:
         raise NotImplementedError("Control plots not implemented")
 
-    if not args.signal_data_dirs and args.data_dir:
-        args.signal_data_dirs = [args.data_dir]
+    if args.data_dir:
+        args.data_dir = Path(args.data_dir)
 
-    if not args.bg_data_dirs and args.data_dir:
+    if args.bg_data_dirs:
+        args.bg_data_dirs = [Path(bg_dir) for bg_dir in args.bg_data_dirs]
+    elif args.data_dir:
         args.bg_data_dirs = [args.data_dir]
 
-    save_args = deepcopy(args)
+    if args.signal_data_dirs:
+        args.signal_data_dirs = [Path(sig_dir) for sig_dir in args.signal_data_dirs]
+    elif args.data_dir:
+        args.signal_data_dirs = [args.data_dir]
 
     # save args in args.plot_dir and args.template_dir if they exit
     if args.plot_dir:

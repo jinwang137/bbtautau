@@ -143,39 +143,6 @@ python boostedhh/condor/check_jobs.py --analysis bbtautau --tag 25Apr24_v12_priv
 
 @Ludo - add instructions here.
 
-### Sensitivity study
-
-```python SensitivityStudy.py --actions compute_rocs plot_rocs --years 2022 2023 --channels hh hm```
-# Arguments
-```
-| Argument      | Type      | Default                   | Description                                                                                         |
-|---------------|-----------|---------------------------|-----------------------------------------------------------------------------------------------------|
-| `--years`     | list      | 2022 2022EE 2023 2023BPix | List of years to include in the analysis                                                            |
-| `--channels`  | list      | hh hm he                  | List of channels to run (default: all)                                                              |
-| `--test-mode` | flag      | False                     | Run in test mode (reduced data size)                                                                |
-| `--use-abcd`  | flag      | False                     | Use ABCD background estimation                                                                      |
-| `--actions`   | list      | (Required)                | Actions to perform. Choose one or more: `compute_rocs`, `plot_rocs`, `plot_mass`, `sensitivity`     |
-| `--b-vals`    | list(int) | 1 2 8                     | B values for significance scan                                                                      |
-| `--plot-dir`  | str       | Current directory         | Directory to save results and CSVs                                                                  |
-```
-
-Example Commands
-
-*Run a full analysis for all years and all channels:*
-
-`python SensitivityStudy.py --actions compute_rocs plot_rocs plot_mass sensitivity`
-
-*Run only on selected years/channels in test mode:*
-
-`python SensitivityStudy.py --actions sensitivity --years 2022 2023 --channels hh --test-mode`
-
-*Use ABCD background estimation and save plots to a specific directory:*
-
-`python SensitivityStudy.py --actions plot_mass --use-abcd --plot-dir results/`
-
-### Control plots
-
-@Billy - convert into script and add instructions here
 
 ### BDT
 
