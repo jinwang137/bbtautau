@@ -144,6 +144,49 @@ python boostedhh/condor/check_jobs.py --analysis bbtautau --tag 25Apr24_v12_priv
 @Ludo - add instructions here.
 
 
+
+### Sensitivity study
+
+```
+python SensitivityStudy.py --actions compute_rocs plot_mass sensitivity --years 2022 2023 --channels hh hm
+```
+
+Arguments
+
+-years (list, default: 2022 2022EE 2023 2023BPix): List of years to include in the analysis.
+-channels (list, default: hh hm he): List of channels to run (default: all).
+-test-mode (flag, default: False): Run in test mode (reduced data size).
+-use_bdt (flag, default: False): Use BDT model for sensitivity study.
+-modelname (str, default: 28May25_baseline): Name of the BDT model to use.
+-at-inference (flag, default: False): Compute BDT predictions at inference time.
+-actions (list, required): Actions to perform. Choose one or more: compute_rocs, plot_mass, sensitivity, time-methods.
+
+
+
+Example Commands
+
+*Run an optimization analysis for all years and all channels, with the GloParT tautau tagger:*
+
+`python SensitivityStudy.py --actions sensitivity`
+
+*Run a full analysis for all years and all channels, using the BDT for the tautau jet:*
+
+`python SensitivityStudy.py --actions compute_rocs plot_mass sensitivity`
+
+*Run only on selected years/channels in test mode:*
+
+`--test-mode` will reduce the data loading time significantly. Practical for testing.
+
+`python SensitivityStudy.py --actions sensitivity --years 2022 --channels hh --test-mode`
+
+Notes:
+- by default uses ABCD background estimation method, and FOM = $\sqrt{b+\sigma_b}/s$
+- by default uses parallel thread data loading and optimization
+
+### Control plots
+
+@Billy - convert into script and add instructions here
+
 ### BDT
 
 This script provides a command-line interface to train, load, and evaluate a multiclass Boosted Decision Tree (BDT) model on data from one or more years. It includes options for studying rescaling effects, evaluating BDT predictions, and managing data reloading.
