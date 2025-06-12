@@ -147,7 +147,7 @@ python boostedhh/condor/check_jobs.py --analysis bbtautau --tag 25Apr24_v12_priv
 
 ### Sensitivity study
 
-```
+```bash
 python SensitivityStudy.py --actions compute_rocs plot_mass sensitivity --years 2022 2023 --channels hh hm
 ```
 
