@@ -232,7 +232,11 @@ def main(args: argparse.Namespace):
         # pass_ylim=150,
         # fail_ylim=1e5,
         use_bdt=args.use_bdt,
-        sig_scale_dict={f"bbtt{CHANNEL.key}": 300, f"vbfbbtt-k2v0{CHANNEL.key}": 40},
+        sig_scale_dict={
+            f"bbtt{CHANNEL.key}": 300,
+            f"vbfbbtt{CHANNEL.key}": 40,
+            f"vbfbbtt-k2v0{CHANNEL.key}": 40,
+        },  # Added vbf to fix an error that I don't understand
         template_dir=args.template_dir,
         plot_dir=args.plot_dir,
         show=False,
