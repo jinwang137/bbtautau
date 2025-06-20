@@ -1093,7 +1093,7 @@ def load_bdt_preds(
 
         bdt_preds = np.load(pred_file)
         multiclass = len(bdt_preds.shape) > 1
-        putils._add_bdt_scores(loaded_sample.events, bdt_preds, multiclass, all_outs)
+        _add_bdt_scores(loaded_sample.events, bdt_preds, multiclass, all_outs)
 
         # if jec_jmsr_shifts and sample != data_key:
         #     for jshift in jec_shifts + jmsr_shifts:
