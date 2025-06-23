@@ -166,7 +166,8 @@ def main(args: argparse.Namespace):
     print(data_paths)
 
     if args.sigs is None:
-        args.sigs = {s + CHANNEL.key: SAMPLES[s + CHANNEL.key] for s in SIGNALS}
+        sigs = ["bbtt", "vbfbbtt-k2v0"]
+        args.sigs = {s + CHANNEL.key: SAMPLES[s + CHANNEL.key] for s in sigs}
 
     if args.bgs is None:
         args.bgs = {bkey: b for bkey, b in SAMPLES.items() if b.get_type() == "bg"}
