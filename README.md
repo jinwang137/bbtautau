@@ -228,8 +228,6 @@ Models are stored in global `CLASSIFIER_PATH` defined on top of file.
 ** Run predictions **
 Note: define global variable `DATA_PATH` in `bdt.py` for default prediction output directory, or provide a full path in input as .
 
-```
-
 
 ### Templates
 

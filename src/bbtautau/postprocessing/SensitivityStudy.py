@@ -7,6 +7,7 @@ import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from datetime import date
 
 # mid_time = time.time()
 # print(f"Time taken for block 1: {mid_time - start_time} seconds")
@@ -52,7 +53,7 @@ hep.style.use("CMS")
 # Global variables
 MAIN_DIR = Path("/home/users/lumori/bbtautau/")
 BDT_EVAL_DIR = Path("/ceph/cms/store/user/lumori/bbtautau/BDT_predictions/")
-TODAY = "25Jun11"  # to name output folder
+TODAY = date.today()  # to name output folder
 SIG_KEYS = {"hh": "bbtthh", "he": "bbtthe", "hm": "bbtthm"}  # TODO Generalize for other signals
 
 data_dir_2022 = "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal"
@@ -82,6 +83,8 @@ data_paths = {
 class Optimum:
     signal_yield: float
     bkg_yield: float
+    hmass_fail: float
+    sideband_fail: float
     transfer_factor: float
     cuts: tuple[float, float]
 
@@ -102,12 +105,12 @@ def fom2(b, s, _tf):
 
 
 class Analyser:
-    def __init__(self, years, channel_key, test_mode, use_bdt, modelname, at_inference=False):
+    def __init__(self, years, channel_key, test_mode, use_bdt, modelname, main_plot_dir, at_inference=False):
         self.channel = CHANNELS[channel_key]
         self.years = years
         self.test_mode = test_mode
         test_dir = "test" if test_mode else "full"
-        self.plot_dir = Path(MAIN_DIR) / f"plots/SensitivityStudy/{TODAY}/{test_dir}/{channel_key}"
+        self.plot_dir = Path(main_plot_dir) / f"plots/SensitivityStudy/{TODAY}/{test_dir}/{channel_key}"
         self.plot_dir.mkdir(parents=True, exist_ok=True)
 
         # TODO we should get rid of this line
@@ -399,6 +402,11 @@ class Analyser:
                         axis=0,
                     )
                 else:
+                    if jet == "tt":
+                        jet = "tautau" 
+                    for year in years:
+                        for dkey in self.channel.data_samples:
+                            print(year, dkey, self.taggers_dict[year][dkey].keys())
                     mask = np.concatenate(
                         [
                             self.taggers_dict[year][dkey][f"{jet}_mask"]
@@ -628,7 +636,8 @@ class Analyser:
                         self.events_dict[year][key].events["finalWeight"][cut_sig_fail]
                     )
 
-        return sig_pass, bg_pass, sig_fail / bg_fail
+        # signal, B, C, D, TF = C/D
+        return sig_pass, bg_pass, sig_fail, bg_fail, sig_fail / bg_fail
 
     def sig_bkg_opt(
         self,
@@ -680,9 +689,11 @@ class Analyser:
             )
             # results is a list of (sig, bkg, tf) tuples
 
-            sigs, bgs, tfs = zip(*results)
+            sigs, bgs, sig_fails, bg_fails, tfs = zip(*results)
             sigs = np.array(sigs).reshape(BBcut.shape)
             bgs = np.array(bgs).reshape(BBcut.shape)
+            sig_fails = np.array(sig_fails).reshape(BBcut.shape)
+            bg_fails = np.array(bg_fails).reshape(BBcut.shape)
             tfs = np.array(tfs).reshape(BBcut.shape)
 
         bgs_scaled = bgs * tfs
@@ -788,12 +799,16 @@ class Analyser:
             max_signal=Optimum(
                 signal_yield=sigs[max_sig_idx],
                 bkg_yield=bgs[max_sig_idx],
+                hmass_fail=sig_fails[max_sig_idx],
+                sideband_fail=bg_fails[max_sig_idx],
                 transfer_factor=tfs[max_sig_idx],
                 cuts=(bbcut_opt, ttcut_opt),
             ),
             best_lims=Optimum(
                 signal_yield=sigs[max_significance_i],
                 bkg_yield=bgs[max_significance_i],
+                hmass_fail=sig_fails[max_significance_i],
+                sideband_fail=bg_fails[max_significance_i],
                 transfer_factor=tfs[max_significance_i],
                 cuts=(bbcut_opt_significance, ttcut_opt_significance),
             ),
@@ -859,6 +874,8 @@ class Analyser:
         cut_bb, cut_tt = optimum.cuts
         sig_yield = optimum.signal_yield
         bg_yield = optimum.bkg_yield
+        hmass_fail = optimum.hmass_fail
+        sideband_fail = optimum.sideband_fail
         tf = optimum.transfer_factor
 
         limits = {}
@@ -866,6 +883,9 @@ class Analyser:
         limits["Cut_Xbb"] = cut_bb
         limits["Cut_Xtt"] = cut_tt
         limits["Sig_Yield"] = sig_yield
+        limits["Sideband Pass"] = bg_yield
+        limits["Higgs Mass Fail"] = hmass_fail
+        limits["Sideband Fail"] = sideband_fail
         limits["BG_Yield_scaled"] = bg_yield * tf
         limits["TF"] = tf
 
@@ -896,6 +916,7 @@ def analyse_channel(
     test_mode,
     use_bdt,
     modelname,
+    main_plot_dir,
     use_abcd=True,
     actions=None,
     b_vals=None,
@@ -903,10 +924,10 @@ def analyse_channel(
 ):
 
     print(f"Processing channel: {channel}. Test mode: {test_mode}.")
-    analyser = Analyser(years, channel, test_mode, use_bdt, modelname, at_inference)
+    analyser = Analyser(years, channel, test_mode, use_bdt, modelname, main_plot_dir, at_inference)
 
     analyser.load_data()
-    # analyser.build_tagger_dict()
+    analyser.build_tagger_dict()
 
     if actions is None:
         actions = []
@@ -1007,6 +1028,18 @@ if __name__ == "__main__":
         required=True,
         help="Actions to perform. Choose one or more.",
     )
+    parser.add_argument(
+        "--plot-dir",
+        help="If making control or template plots, path to directory to save them in",
+        default="/home/users/lumori/bbtautau/",
+        type=str,
+    )
+    parser.add_argument(
+        "--bdt-dir",
+        help="directory where you save your bdt model for inference",
+        default="/home/users/lumori/bbtautau/src/bbtautau//postprocessing/classifier/trained_models/28May25_baseline_all",
+        type=str,
+    )
 
     # TODO: see what to do for these options
     # parser.add_argument(
@@ -1032,6 +1065,7 @@ if __name__ == "__main__":
             test_mode=args.test_mode,
             use_bdt=args.use_bdt,
             modelname=args.modelname,
+            main_plot_dir = args.plot_dir,
             use_abcd=True,  # temporary. will need to generalize framework
             actions=args.actions,
             b_vals=None,  # TODO: add b_vals

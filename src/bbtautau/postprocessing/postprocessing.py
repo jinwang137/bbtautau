@@ -166,7 +166,8 @@ def main(args: argparse.Namespace):
     print(data_paths)
 
     if args.sigs is None:
-        args.sigs = {s + CHANNEL.key: SAMPLES[s + CHANNEL.key] for s in SIGNALS}
+        sigs = ["bbtt", "vbfbbtt-k2v0"]
+        args.sigs = {s + CHANNEL.key: SAMPLES[s + CHANNEL.key] for s in sigs}
 
     if args.bgs is None:
         args.bgs = {bkey: b for bkey, b in SAMPLES.items() if b.get_type() == "bg"}
@@ -1097,7 +1098,7 @@ def load_bdt_preds(
 
         bdt_preds = np.load(pred_file)
         multiclass = len(bdt_preds.shape) > 1
-        putils._add_bdt_scores(loaded_sample.events, bdt_preds, multiclass, all_outs)
+        _add_bdt_scores(loaded_sample.events, bdt_preds, multiclass, all_outs)
 
         # if jec_jmsr_shifts and sample != data_key:
         #     for jshift in jec_shifts + jmsr_shifts:
