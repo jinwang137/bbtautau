@@ -33,7 +33,7 @@ import bbtautau.postprocessing.utils as putils
 from bbtautau.bbtautau_utils import Channel
 from bbtautau.HLTs import HLTs
 from bbtautau.postprocessing import Regions, Samples, plotting
-from bbtautau.postprocessing.Samples import CHANNELS, SAMPLES, SIGNALS
+from bbtautau.postprocessing.Samples import CHANNELS, SAMPLES
 from bbtautau.postprocessing.utils import LoadedSample
 
 # from bbtautau.postprocessing.bdt import eval_bdt_preds
