@@ -524,61 +524,86 @@ class ROCAnalyzer:
             name=title + "_".join(self.years),
         )
 
-    def compute_confusion_matrix(self, discriminant_name, threshold=0.5, plot_dir=None):
+    def compute_confusion_matrix(
+        self, discriminant_name, threshold=0.5, plot_dir=None, normalize=True
+    ):
+
         disc = self.discriminants[discriminant_name]
         disc_scores = disc.disc_scores
         extended_labels = disc.extended_labels
-        binary_labels = disc.binary_labels
-        bkg_names = disc.bkg_names
+        bkg_names = list(disc.bkg_names)
         signal_name = disc.signal_name
         weights = disc.weights
 
         # All possible columns: backgrounds + signal
         col_names = bkg_names + [signal_name]
+        n_cols = len(col_names)
 
-        # Initialize the weighted confusion matrix
-        cm = np.zeros((2, len(col_names)), dtype=float)
+        # Map each label to its column index
+        label_to_col = {name: i for i, name in enumerate(col_names)}
 
-        # Signal events (row 1)
-        signal_mask = binary_labels == 1
-        signal_scores = disc_scores[signal_mask]
-        signal_weights = weights[signal_mask]
-        signal_ext_labels = extended_labels[signal_mask]
-        # Predicted: signal if above threshold, else (optionally) their own label (rare for true signal)
-        signal_pred = np.where(
-            signal_scores >= threshold,
-            len(col_names) - 1,  # Predicted as signal
-            [
-                bkg_names.index(lbl) if lbl in bkg_names else len(col_names) - 1
-                for lbl in signal_ext_labels
-            ],
+        # Rows: 0 = predicted background, 1 = predicted signal
+        n_rows = 2
+
+        # Predicted class: 1 (signal) if disc_score >= threshold else 0 (background)
+        y_pred = (disc_scores >= threshold).astype(int)
+
+        # True class: index in col_names, determined from extended_labels
+        y_true = np.array([label_to_col.get(lbl, n_cols - 1) for lbl in extended_labels])
+
+        # Initialize weighted confusion matrix
+        cm = np.zeros((n_rows, n_cols), dtype=float)
+
+        # Fill matrix: for each event, add its weight to (pred, true_class)
+        for pred, true_col, w in zip(y_pred, y_true, weights):
+            cm[pred, true_col] += w
+
+        # Normalize columns (per true class), if requested
+        if normalize:
+            col_sums = cm.sum(axis=0, keepdims=True)
+            cm_norm = np.divide(cm, col_sums, where=col_sums != 0)
+        else:
+            cm_norm = cm
+
+        # Plotting
+        fig, ax = plt.subplots()
+        im = ax.imshow(cm_norm, cmap="Blues", aspect="auto", vmin=0, vmax=1 if normalize else None)
+        fig.colorbar(
+            im,
+            ax=ax,
+            label=(
+                "Fraction of true class (column-normalized)"
+                if normalize
+                else "Sum of event weights"
+            ),
         )
-        for i, pred in enumerate(signal_pred):
-            cm[1, pred] += signal_weights[i]
+        ax.set_xticks(np.arange(n_cols))
+        ax.set_xticklabels(col_names, rotation=45)
+        ax.set_yticks([0, 1])
+        ax.set_yticklabels(["Background", "Signal"])
+        ax.set_xlabel("True class")
+        ax.set_ylabel("Prediction")
+        ax.set_title(f"{'Normalized ' if normalize else ''}Confusion Matrix\n{discriminant_name}")
 
-        # Background events (row 0)
-        bkg_mask = binary_labels == 0
-        bkg_scores = disc_scores[bkg_mask]
-        bkg_weights = weights[bkg_mask]
-        bkg_ext_labels = extended_labels[bkg_mask]
-        bkg_pred = np.where(
-            bkg_scores >= threshold,
-            len(col_names) - 1,  # Predicted as signal
-            [bkg_names.index(lbl) for lbl in bkg_ext_labels],
-        )
-        for i, pred in enumerate(bkg_pred):
-            cm[0, pred] += bkg_weights[i]
+        for i in range(cm_norm.shape[0]):
+            for j in range(cm_norm.shape[1]):
+                value = cm_norm[i, j]
+                display_val = f"{value:.2f}" if normalize else f"{value:.0f}"
+                ax.text(
+                    j,
+                    i,
+                    display_val,
+                    ha="center",
+                    va="center",
+                    color="white" if value > (0.5 if normalize else 0.0) else "black",
+                    fontsize=10,
+                    fontweight="bold",
+                )
 
-        plt.imshow(cm, cmap="Blues", aspect="auto")
-        plt.xticks(ticks=np.arange(len(col_names)), labels=col_names, rotation=45)
-        plt.yticks([0, 1], ["Background", "Signal"])
-        plt.xlabel("Predicted class")
-        plt.ylabel("True class")
-        plt.title(f"Weighted Confusion Matrix\n{discriminant_name}")
-        plt.colorbar(label="Sum of event weights")
-        plt.tight_layout()
+        fig.tight_layout()
         if plot_dir is not None:
             (plot_dir / "confusion_matrix").mkdir(parents=True, exist_ok=True)
-            plt.savefig(plot_dir / "confusion_matrix" / "2byN_weighted.png")
-            plt.savefig(plot_dir / "confusion_matrix" / "2byN_weighted.pdf")
-        plt.show()
+            suffix = "_normalized" if normalize else ""
+            fig.savefig(plot_dir / "confusion_matrix" / f"2byN_weighted{suffix}.png")
+            fig.savefig(plot_dir / "confusion_matrix" / f"2byN_weighted{suffix}.pdf")
+        plt.close(fig)

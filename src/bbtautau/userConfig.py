@@ -43,3 +43,12 @@ SAMPLE_MAPPING = {
     "QCD": 3,
     "all": 4,
 }
+
+
+OPT_PARS = {
+    "mbb1": 110.0,
+    "mbb2": 140.0,
+    "mbbw2": (140.0 - 110.0) / 2,
+    "mtt1": lambda channel: {"hh": 50, "hm": 70, "he": 70}[channel],
+    "mtt2": lambda channel: {"hh": 150, "hm": 210, "he": 210}[channel],
+}

@@ -560,7 +560,10 @@ def load_samples(
             if f"vbfbbtt{ch}" in samples:
                 del samples[f"vbfbbtt{ch}"]
 
-    print("Loading samples", samples.keys())
+    print(
+        f"Loading year {year}, samples",
+        [key for key in samples if samples[key].selector is not None],
+    )
 
     # load only the specified columns
     if load_columns is not None:
@@ -615,7 +618,6 @@ def load_samples(
 
     # keep only the specified bbtt channels
     for channel in channels:
-        print(channel.key, signals, events_dict.keys())
         for signal in signals:
 
             if not loaded_samples:

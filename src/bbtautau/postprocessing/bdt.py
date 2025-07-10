@@ -35,9 +35,7 @@ from bbtautau.userConfig import DATA_PATHS
 # TODO
 # - k-fold cross validation
 
-
 # Some global variables
-
 DATA_DIR = Path(
     "/ceph/cms/store/user/lumori/bbtautau"
 )  # default directory for saving BDT predictions
@@ -91,10 +89,7 @@ class Trainer:
         if model_dir is not None:
             self.model_dir = CLASSIFIER_DIR / model_dir
         else:
-            self.model_dir = (
-                CLASSIFIER_DIR
-                / f"trained_models/{self.modelname}_{('-'.join(self.years) if self.years != hh_vars.years else 'all')}"
-            )
+            self.model_dir = CLASSIFIER_DIR / f"trained_models/{self.modelname}"
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
     def load_data(self, force_reload=False):
@@ -111,9 +106,6 @@ class Trainer:
             self.dtrain_rescaled = xgb.DMatrix(self.model_dir / "dtrain_rescaled.buffer")
             self.dval_rescaled = xgb.DMatrix(self.model_dir / "dval_rescaled.buffer")
 
-            for ch in CHANNELS:
-                self.samples[f"bbtt{ch}"] = SAMPLES[f"bbtt{ch}"]
-            del self.samples["bbtt"]
             self.loaded_dmatrix = True
         else:
             for year in self.years:
@@ -149,6 +141,10 @@ class Trainer:
                     self.events_dict[year], CHANNELS["hm"]
                 )  # legacy issue, muon branches are misnamed
                 bbtautau_assignment(self.events_dict[year], agnostic=True)
+
+        for ch in CHANNELS:
+            self.samples[f"bbtt{ch}"] = SAMPLES[f"bbtt{ch}"]
+        del self.samples["bbtt"]
 
     @staticmethod
     def shorten_df(df, N, seed=42):
@@ -778,7 +774,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--years",
         nargs="+",
-        default=["2022"],
+        default=["all"],
         help="Year(s) of data to use. Can be: 'all', or multiple years (e.g. --years 2022 2023 2024)",
     )
     parser.add_argument(
