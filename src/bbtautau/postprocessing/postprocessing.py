@@ -157,6 +157,25 @@ shape_vars = [
 def main(args: argparse.Namespace):
     CHANNEL = CHANNELS[args.channel]
 
+    # update TXbb and Txtt cuts if a sensitivity output csv path is provided
+    if args.sensitivity_dir is not None:
+        CHANNEL = deepcopy(CHANNEL)
+
+        # read the csv file into a df
+        csv_dir = Path(args.sensitivity_dir).joinpath(f"full/{args.channel}")
+        csv_files = list(csv_dir.glob('*.csv'))
+        if len(csv_files) != 1:
+            raise ValueError(f"Expected exactly 1 Sensitivity CSV file, found {len(csv_files)}: {csv_files} in {csv_dir}")
+        csv_file = csv_files[0]
+        df = pd.read_csv(csv_file)
+
+        # update the CHANNEL cuts
+        CHANNEL.txbb_cut = float(df.loc[df['Unnamed: 0'] == 'Cut_Xbb', 'Best_lims'].values[0])
+        if args.use_bdt:
+            CHANNEL.txtt_BDT_cut = float(df.loc[df['Unnamed: 0'] == 'Cut_Xtt', 'Best_lims'].values[0])
+        else:
+            CHANNEL.txtt_cut= float(df.loc[df['Unnamed: 0'] == 'Cut_Xbb', 'Best_lims'].values[0])
+
     data_paths = {
         "signal": args.signal_data_dirs,
         "data": args.data_dir,
@@ -233,7 +252,11 @@ def main(args: argparse.Namespace):
         # pass_ylim=150,
         # fail_ylim=1e5,
         use_bdt=args.use_bdt,
-        sig_scale_dict={f"bbtt{CHANNEL.key}": 300, f"vbfbbtt-k2v0{CHANNEL.key}": 40},
+        sig_scale_dict={
+            f"bbtt{CHANNEL.key}": 300,
+            f"vbfbbtt{CHANNEL.key}": 40,
+            f"vbfbbtt-k2v0{CHANNEL.key}": 40,
+        },  # Added vbf to fix an error that I don't understand
         template_dir=args.template_dir,
         plot_dir=args.plot_dir,
         show=False,
@@ -242,7 +265,7 @@ def main(args: argparse.Namespace):
     print("\nSaving templates")
     save_templates(
         templates,
-        args.template_dir / f"{args.year}_templates{'_bdt' if args.use_bdt else ''}.pkl",
+        args.template_dir / f"{args.year}_templates.pkl",
         args.blinded,
         shape_vars,
     )
@@ -330,7 +353,7 @@ def trigger_filter(
 
     if fast_mode:
         for i in range(len(base_filters)):
-            base_filters[i] += [("('ak8FatJetPNetXbbLegacy', '0')", ">=", 0.95)]
+            base_filters[i] += [("('ak8FatJetPNetXbbLegacy', '0')", ">=", 0.98)]
 
     filters_dict = {}
 
@@ -923,9 +946,11 @@ def bbtautau_assignment(
                 sample.get_var(f"ak8FatJetParTX{sig_labels[0]}")
                 + sample.get_var(f"ak8FatJetParTX{sig_labels[1]}")
                 + sample.get_var(f"ak8FatJetParTX{sig_labels[2]}")
-            )
+            ) / 3
             denom = num + sample.get_var("ak8FatJetParTQCD")
-            combined_score = np.divide(num, denom, out=np.zeros_like(num), where=(num + denom) != 0)
+            combined_score = np.divide(
+                num, denom, out=np.zeros_like(num), where=((num != PAD_VAL) & (denom != 0))
+            )
             tautau_pick = np.argmax(combined_score, axis=1)
         else:
             tautau_pick = np.argmax(
@@ -1661,6 +1686,13 @@ def parse_args(parser=None):
         "--model-dir",
         help="Path to the BDT model directory",
         default="/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/trained_models/28May25_baseline_all",
+        type=str,
+    )
+
+    parser.add_argument(
+        "--sensitivity-dir",
+        help="Path to the sensitivity study's output directory that has a csv file under {dir}/full{channel}. The TXbb/Txtt cuts will be extracted/ If not provided, the script will use the ones in Samples.py",
+        default="None",
         type=str,
     )
 
