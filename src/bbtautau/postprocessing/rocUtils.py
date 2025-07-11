@@ -604,6 +604,10 @@ class ROCAnalyzer:
         if plot_dir is not None:
             (plot_dir / "confusion_matrix").mkdir(parents=True, exist_ok=True)
             suffix = "_normalized" if normalize else ""
-            fig.savefig(plot_dir / "confusion_matrix" / f"2byN_weighted{suffix}.png")
-            fig.savefig(plot_dir / "confusion_matrix" / f"2byN_weighted{suffix}.pdf")
+            fig.savefig(
+                plot_dir / "confusion_matrix" / f"2byN_weighted{suffix}.png", bbox_inches="tight"
+            )
+            fig.savefig(
+                plot_dir / "confusion_matrix" / f"2byN_weighted{suffix}.pdf", bbox_inches="tight"
+            )
         plt.close(fig)

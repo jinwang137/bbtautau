@@ -175,7 +175,7 @@ class Trainer:
             writer.writeheader()
             writer.writerows(stats)
 
-    def prepare_training_set(self, save_buffer=False, scale_rule="signal", balance="bysigbkg"):
+    def prepare_training_set(self, save_buffer=False, scale_rule="signal", balance="bysample"):
         """Prepare features and labels using LabelEncoder for multiclass classification.
 
         Args:
@@ -564,6 +564,10 @@ class Trainer:
                 rocAnalyzer.plot_disc_scores(
                     disc.name, [[bkg] for bkg in background_names], savedir
                 )
+                try:
+                    rocAnalyzer.compute_confusion_matrix(disc.name, plot_dir=savedir)
+                except Exception as e:
+                    print(f"Error computing confusion matrix for {disc.name}: {e}")
 
             disc_bkgall = [disc for disc in discs if set(background_names) == set(disc.bkg_names)]
             if len(disc_bkgall) == 0:

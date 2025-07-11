@@ -407,6 +407,19 @@ def get_columns(
             ("nFatJets", 1),
             ("METPt", 1),
             ("METPhi", 1),
+            ("ht", 1),
+            ("nElectrons", 1),
+            ("ElectronPt", 1),
+            ("ElectronEta", 1),
+            ("ElectronPhi", 1),
+            ("Electroncharge", 1),
+            ("ElectronMass", 1),
+            ("nMuons", 1),
+            ("MuonPt", 1),
+            ("MuonEta", 1),
+            ("MuonPhi", 1),
+            ("Muoncharge", 1),
+            ("MuonMass", 1),
         ]
 
     columns_mc = copy.deepcopy(columns_data)

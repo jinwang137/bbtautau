@@ -46,6 +46,13 @@ TODAY = date.today()  # to name output folder
 SIG_KEYS = {"hh": "bbtthh", "he": "bbtthe", "hm": "bbtthm"}  # TODO Generalize for other signals
 
 
+class FOM:
+    def __init__(self, fom_func, label, name):
+        self.fom_func = fom_func
+        self.label = label
+        self.name = name
+
+
 @dataclass
 class Optimum:
     limit: float
@@ -62,15 +69,8 @@ class Optimum:
     sig_map: np.ndarray | None = None
     bg_map: np.ndarray | None = None
     sel_B_min: np.ndarray | None = None
-    fom_name: str | None = None
+    fom: FOM | None = None
     sig_normalized: bool | None = None
-
-
-class FOM:
-    def __init__(self, fom_func, label, name):
-        self.fom_func = fom_func
-        self.label = label
-        self.name = name
 
 
 def fom_2sqrtB_S(b, s, _tf):
@@ -92,7 +92,7 @@ def fom_punzi(b, s, _tf, a=3):
 
 FOMS = {
     "2sqrtB_S": FOM(fom_2sqrtB_S, "$2\\sqrt{B}/S$", "2sqrtB_S"),
-    "2sqrtB_S_var": FOM(fom_2sqrtB_S_var, "$2\\sqrt{B+(B/\\tilde{B})^2/S}$", "2sqrtB_S_var"),
+    "2sqrtB_S_var": FOM(fom_2sqrtB_S_var, "$2\\sqrt{B+B^2/\\tilde{B}}/S$", "2sqrtB_S_var"),
     "punzi": FOM(fom_punzi, "$(\\sqrt{B}+a/2)/S$", "punzi"),
 }
 
@@ -541,7 +541,7 @@ class Analyser:
                 sig_map=sigs,
                 bg_map=bgs_scaled,
                 sel_B_min=sel_B_min,
-                fom_name=fom.name,
+                fom=fom,
                 sig_normalized=normalize_sig,
             )
 
@@ -619,7 +619,7 @@ class Analyser:
             for fom in foms:
                 results[f"Bmin={B_min}"] = result[fom.name]
                 results_df[f"Bmin={B_min}"] = self.as_df(
-                    result[fom.name], years, fom, label=f"Bmin={B_min}"
+                    result[fom.name], years, label=f"Bmin={B_min}"
                 )
             print("done with Bmin=", B_min)
 
@@ -745,7 +745,7 @@ class Analyser:
                 label=fom.label,
             )
 
-        ax.set_xlabel("$B_min$")
+        ax.set_xlabel("$B_{min}$")
         ax.set_ylabel("FOM optimum  ")
 
         ax.text(
@@ -820,7 +820,7 @@ class Analyser:
         import time
 
         # Configuration parameters
-        b_min_vals = np.arange(1, 17, 2)  # [1, 3, 5, 7, 9, 11, 13, 15]
+        b_min_vals = [1, 2]  # np.arange(1, 17, 2)  # [1, 3, 5, 7, 9, 11, 13, 15]
         gridlims = (0.7, 1.0)
         gridsize = 20 if self.test_mode else 50
         bayesian_calls = 100
@@ -916,8 +916,8 @@ class Analyser:
             bayesian_limits = []
 
             for B_min in b_min_vals:
-                grid_limit = results["grid_search"][B_min][fom.name].limits
-                bayesian_limit = results["bayesian"][B_min][fom.name].limits
+                grid_limit = results["grid_search"][B_min][fom.name].limit
+                bayesian_limit = results["bayesian"][B_min][fom.name].limit
                 grid_limits.append(grid_limit)
                 bayesian_limits.append(bayesian_limit)
 
@@ -1002,7 +1002,7 @@ class Analyser:
                 row.update(
                     {
                         "grid_time": timing_results["grid_search"][B_min],
-                        "grid_limit": grid_opt.limits,
+                        "grid_limit": grid_opt.limit,
                         "grid_sig_yield": grid_opt.signal_yield,
                         "grid_bkg_yield": grid_opt.bkg_yield,
                         "grid_cuts": f"({grid_opt.cuts[0]:.3f}, {grid_opt.cuts[1]:.3f})",
@@ -1144,7 +1144,7 @@ def analyse_channel(
         analyser.plot_mass(years)
     if "sensitivity" in actions:
         analyser.prepare_sensitivity(years)
-        analyser.perform_optimization(years, test_mode=test_mode, use_bdt=use_bdt)
+        analyser.perform_optimization(years, test_mode=test_mode)
     if "fom_study" in actions:
         analyser.prepare_sensitivity(years)
         analyser.study_foms(years)
@@ -1182,7 +1182,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--modelname",
-        default="28May25_baseline",
+        default="10July25_baseline",
         help="Name of the BDT model to use for sensitivity study",
     )
     parser.add_argument(
