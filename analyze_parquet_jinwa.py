@@ -103,9 +103,9 @@ def plot_distributions(df, output_dir="plots"):
             data = df['ak8FatJetCAmatched_2BoostedTaus']
         
         plt.hist(data, bins=50, alpha=0.7, weights=weights)
-        plt.xlabel('ak8FatJetCAmatched_2BoostedTaus')
+        plt.xlabel('ak8FatJetCAmatched_2Boosted_HPS_Taus (1st FatJet)')
         plt.ylabel('Events')
-        plt.title('ak8FatJetCAmatched_2BoostedTaus')
+        plt.title('ak8FatJetCAmatched_2Boosted_HPS_Taus (1st FatJet)')
     
     # FatJet matching
     if 'ak8FatJetCAmatched_2BoostedTaus' in df.columns:
@@ -117,9 +117,9 @@ def plot_distributions(df, output_dir="plots"):
             data = df['ak8FatJetCAmatched_2BoostedTaus']
         
         plt.hist(data, bins=50, alpha=0.7, weights=weights)
-        plt.xlabel('ak8FatJetCAmatched_2BoostedTaus (2nd FatJet)')
+        plt.xlabel('ak8FatJetCAmatched_2Boosted_HPS_Taus (2nd FatJet)')
         plt.ylabel('Events')
-        plt.title('ak8FatJetCAmatched_2BoostedTaus (2nd FatJet)')
+        plt.title('ak8FatJetCAmatched_2Boosted_HPS_Taus (2nd FatJet)')
 
     # Number of jets
     if 'nFatJets' in df.columns:
@@ -143,21 +143,21 @@ def plot_distributions(df, output_dir="plots"):
         plot_count += 1
         plt.subplot(2, 3, plot_count)
         plt.hist(df['CA_tau_idx_0'], bins=10, alpha=0.7, weights=weights)
-        plt.xlabel('CA_tau_idx_0')
+        plt.xlabel('Matched_boosted_HPS_tau_idx_0')
         plt.ylabel('Events')
-        plt.title('CA_tau_idx_0')
+        plt.title('Matched_boosted_HPS_tau_idx_0')
 
     if 'CA_best_fatjet_idx' in df.columns:
         plot_count += 1
         plt.subplot(2, 3, plot_count)
         plt.hist(df['CA_best_fatjet_idx'], bins=10, alpha=0.7, weights=weights)
-        plt.xlabel('CA_best_fatjet_idx')
+        plt.xlabel('CA_tauhtauh_fatjet_idx')
         plt.ylabel('Events')
-        plt.title('CA_best_fatjet_idx')
+        plt.title('CA_tauhtauh_fatjet_idx')
     
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/quick_check_add3.png', dpi=150, bbox_inches='tight')
-    print(f"Plot saved to {output_dir}/quick_check_add3.png")
+    plt.savefig(f'{output_dir}/quick_check_add6.png', dpi=150, bbox_inches='tight')
+    print(f"Plot saved to {output_dir}/quick_check_add6.png")
     plt.show()
 
 def analyze_selections(df):
