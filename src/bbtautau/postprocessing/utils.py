@@ -106,10 +106,31 @@ class LoadedSample(utils.LoadedSampleABC):
     events: pd.DataFrame = None
     bb_mask: np.ndarray = None
     tt_mask: np.ndarray = None
+    m_mask: np.ndarray = None
+    e_mask: np.ndarray = None
 
     def get_var(self, feat: str, pad_nan=False):
-        if feat in self.events:
+        if feat.startswith("ttMuon"):
+            if self.m_mask is None:
+                raise ValueError(f"m_mask is not set for {self.sample}")
+            padded_array = np.full(len(self.events), PAD_VAL)
+            padded_array[np.any(self.m_mask, axis=1)] = (
+                self.events[feat.replace("ttMuon", "Muon")].to_numpy()[self.m_mask].squeeze()
+            )
+            return padded_array
+        elif feat.startswith("ttElectron"):
+            if self.e_mask is None:
+                raise ValueError(f"e_mask is not set for {self.sample}")
+            padded_array = np.full(len(self.events), PAD_VAL)
+            padded_array[np.any(self.e_mask, axis=1)] = (
+                self.events[feat.replace("ttElectron", "Electron")]
+                .to_numpy()[self.e_mask]
+                .squeeze()
+            )
+            return padded_array
+        elif feat in self.events:
             return self.events[feat].to_numpy().squeeze()
+
         elif feat.startswith("bbFatJet"):
             if self.bb_mask is None:
                 raise ValueError(f"bb_mask is not set for {self.sample}")

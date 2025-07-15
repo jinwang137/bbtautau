@@ -372,26 +372,26 @@ def get_columns(
     triggers_in_channel: Channel = None,
     legacy_taggers: bool = True,
     ParT_taggers: bool = True,
+    leptons: bool = True,
     other: bool = True,
-    num_fatjets: int = 3,
 ):
 
     columns_data = [
         ("weight", 1),
-        ("ak8FatJetPt", num_fatjets),
-        ("ak8FatJetEta", num_fatjets),
-        ("ak8FatJetPhi", num_fatjets),
+        ("ak8FatJetPt", 3),
+        ("ak8FatJetEta", 3),
+        ("ak8FatJetPhi", 3),
     ]
 
     # common columns
     if legacy_taggers:
         columns_data += [
-            ("ak8FatJetPNetXbbLegacy", num_fatjets),
-            ("ak8FatJetPNetQCDLegacy", num_fatjets),
-            ("ak8FatJetPNetmassLegacy", num_fatjets),
-            ("ak8FatJetParTmassResApplied", num_fatjets),
-            ("ak8FatJetParTmassVisApplied", num_fatjets),
-            ("ak8FatJetMsd", num_fatjets),
+            ("ak8FatJetPNetXbbLegacy", 3),
+            ("ak8FatJetPNetQCDLegacy", 3),
+            ("ak8FatJetPNetmassLegacy", 3),
+            ("ak8FatJetParTmassResApplied", 3),
+            ("ak8FatJetParTmassVisApplied", 3),
+            ("ak8FatJetMsd", 3),
         ]
 
     if ParT_taggers:
@@ -400,8 +400,21 @@ def get_columns(
             + [f"ak8FatJetParT{key}vsQCD" for key in Samples.sigouts if key != "Xtauhtaum"]
             + [f"ak8FatJetParT{key}vsQCDTop" for key in Samples.sigouts if key != "Xtauhtaum"]
         ):
-            columns_data.append((branch, num_fatjets))
+            columns_data.append((branch, 3))
 
+    if leptons:
+        columns_data += [
+            ("ElectronPt", 2),
+            ("ElectronEta", 2),
+            ("ElectronPhi", 2),
+            ("Electroncharge", 2),
+            ("ElectronMass", 2),
+            ("MuonPt", 2),
+            ("MuonEta", 2),
+            ("MuonPhi", 2),
+            ("Muoncharge", 2),
+            ("MuonMass", 2),
+        ]
     if other:
         columns_data += [
             ("nFatJets", 1),
@@ -409,17 +422,7 @@ def get_columns(
             ("METPhi", 1),
             ("ht", 1),
             ("nElectrons", 1),
-            ("ElectronPt", 1),
-            ("ElectronEta", 1),
-            ("ElectronPhi", 1),
-            ("Electroncharge", 1),
-            ("ElectronMass", 1),
             ("nMuons", 1),
-            ("MuonPt", 1),
-            ("MuonEta", 1),
-            ("MuonPhi", 1),
-            ("Muoncharge", 1),
-            ("MuonMass", 1),
         ]
 
     columns_mc = copy.deepcopy(columns_data)
@@ -967,6 +970,65 @@ def bbtautau_assignment(
         sample.tt_mask = bbtt_masks["tt"]
 
 
+def _get_lepton_mask(sample, lepton_type: str, dR_cut: float) -> np.ndarray:
+    """
+    Calculates a boolean mask to select the highest-pT lepton of a given type
+    that is within a dR_cut of the ttFatJet.
+
+    Returns a boolean array with at most one 'True' per row (event).
+    """
+    # Use .to_numpy() for efficient computation.
+    # The jet's (N,) arrays are reshaped to (N, 1) to broadcast correctly
+    # against the lepton's (N, M) arrays, where M is the number of leptons.
+
+    lepton_eta = sample.get_var(f"{lepton_type}Eta")
+    lepton_phi = sample.get_var(f"{lepton_type}Phi")
+    jet_eta = sample.get_var("ttFatJetEta")[:, np.newaxis]
+    jet_phi = sample.get_var("ttFatJetPhi")[:, np.newaxis]
+
+    # print(sample.sample.label)
+    # print(np.sum(lepton_eta != PAD_VAL, axis=0)/len(lepton_eta))
+
+    # 1. Calculate dR for all leptons and create an initial mask
+    dR = np.sqrt((lepton_eta - jet_eta) ** 2 + (lepton_phi - jet_phi) ** 2)
+    initial_mask = dR < dR_cut
+
+    # 2. Find events that have at least one passing lepton
+    events_with_any_pass = initial_mask.any(axis=1)
+
+    # 3. Find the index of the *first* (highest-pT) passing lepton in each event
+    # For events where none pass, np.argmax incorrectly returns 0.
+    first_pass_idx = np.argmax(initial_mask, axis=1)
+
+    # 4. Create the final mask, initialized to all False
+    final_mask = np.zeros_like(initial_mask, dtype=bool)
+
+    # 5. Use advanced indexing to set a single 'True' in the correct spot.
+    # This clever line only sets final_mask[i, j] to True if events_with_any_pass[i]
+    # is True, effectively ignoring the incorrect argmax result for non-passing events.
+    row_indices = np.arange(len(final_mask))
+    final_mask[row_indices, first_pass_idx] = events_with_any_pass
+
+    return final_mask
+
+
+def leptons_assignment(
+    events_dict: dict[str, LoadedSample],
+    dR_cut: float = 1.5,
+):
+    """
+    Assigns electrons and muons to the tt system.
+
+    For each event, it identifies the highest-pT electron and muon within
+    a cone of dR < 1.5 around the ttFatJet. The resulting boolean masks
+    (e.g., sample.e_mask) will have at most one 'True' per event.
+    """
+
+    for sample in events_dict.values():
+        sample.e_mask = _get_lepton_mask(sample, "Electron", dR_cut)
+        sample.m_mask = _get_lepton_mask(sample, "Muon", dR_cut)
+
+
 def _add_bdt_scores(
     events: pd.DataFrame,
     sample_bdt_preds: np.ndarray,
@@ -993,7 +1055,7 @@ def _add_bdt_scores(
         events[f"BDTScore{jshift}"] = sample_bdt_preds
     else:
         # bg_tot = np.sum(sample_bdt_preds[:, 3:], axis=1)
-        he_score = sample_bdt_preds[:, 0]  # TODO could be de-hardcoded
+        he_score = sample_bdt_preds[:, 0]  # TODO must be de-hardcoded
         hh_score = sample_bdt_preds[:, 1]
         hm_score = sample_bdt_preds[:, 2]
 
@@ -1055,10 +1117,11 @@ def compute_bdt_preds(
 
     bst = xgb.Booster()
     bst.load_model(model_dir / f"{modelname}.json")
-    feature_names = (
-        bdt_config[modelname]["train_vars"]["misc"]["feats"]
-        + bdt_config[modelname]["train_vars"]["fatjet"]["feats"]
-    )
+    feature_names = [
+        feat
+        for cat in bdt_config[modelname]["train_vars"]
+        for feat in bdt_config[modelname]["train_vars"][cat]
+    ]
 
     for year in data:
         for sample_name in data[year]:

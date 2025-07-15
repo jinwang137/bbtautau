@@ -17,9 +17,9 @@ from joblib import Parallel, delayed
 from postprocessing import (
     bbtautau_assignment,
     compute_bdt_preds,
-    delete_columns,
     derive_variables,
     get_columns,
+    leptons_assignment,
     load_bdt_preds,
     load_samples,
     trigger_filter,
@@ -105,8 +105,10 @@ class Analyser:
         self.years = years
         self.test_mode = test_mode
         test_dir = "test" if test_mode else "full"
+        tt_tagger_name = modelname if use_bdt else "ParT"
         self.plot_dir = (
-            Path(main_plot_dir) / f"plots/SensitivityStudy/{TODAY}/{test_dir}/{channel_key}"
+            Path(main_plot_dir)
+            / f"plots/SensitivityStudy/{TODAY}/{test_dir}/{tt_tagger_name}/{channel_key}"
         )
         self.plot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -153,12 +155,11 @@ class Analyser:
                 multithread=True,
             )
 
-            self.events_dict[year] = delete_columns(self.events_dict[year], year, [self.channel])
-
             derive_variables(
                 self.events_dict[year], CHANNELS["hm"]
             )  # legacy issue, muon branches are misnamed
             bbtautau_assignment(self.events_dict[year], agnostic=True)
+            leptons_assignment(self.events_dict[year], dR_cut=1.5)
 
             if self.use_bdt:
                 if self.at_inference:
@@ -627,12 +628,7 @@ class Analyser:
         results_df.index = results_df.index.droplevel(1)
         print(self.channel.label, "\n", results_df.T.to_markdown())
 
-        plot_path = self.plot_dir / (
-            "sig_bkg_opt" + f"_BDT_{self.modelname}" if self.use_bdt else "sig_bkg_opt"
-        )
-        plot_path.mkdir(parents=True, exist_ok=True)
-
-        output_csv = plot_path / f"{'_'.join(years)}-results{'_BDT' if self.use_bdt else ''}.csv"
+        output_csv = self.plot_dir / f"{'_'.join(years)}_opt_results.csv"
         results_df.T.to_csv(output_csv)
 
         if plot:
@@ -706,11 +702,11 @@ class Analyser:
             )
 
             plt.savefig(
-                plot_path / f"{'_'.join(years)}.pdf",
+                self.plot_dir / f"{'_'.join(years)}.pdf",
                 bbox_inches="tight",
             )
             plt.savefig(
-                plot_path / f"{'_'.join(years)}.png",
+                self.plot_dir / f"{'_'.join(years)}.png",
                 bbox_inches="tight",
             )
 

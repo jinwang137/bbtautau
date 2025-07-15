@@ -19,6 +19,7 @@ from postprocessing import (
     delete_columns,
     derive_variables,
     get_columns,
+    leptons_assignment,
     load_samples,
     trigger_filter,
 )
@@ -141,6 +142,7 @@ class Trainer:
                     self.events_dict[year], CHANNELS["hm"]
                 )  # legacy issue, muon branches are misnamed
                 bbtautau_assignment(self.events_dict[year], agnostic=True)
+                leptons_assignment(self.events_dict[year], dR_cut=1.5)
 
         for ch in CHANNELS:
             self.samples[f"bbtt{ch}"] = SAMPLES[f"bbtt{ch}"]
@@ -245,7 +247,7 @@ class Trainer:
                 ]
             )
             avg_signal_weight = total_signal_weight / len_signal
-            feats = self.train_vars["misc"]["feats"] + self.train_vars["fatjet"]["feats"]
+            feats = [feat for cat in self.train_vars for feat in self.train_vars[cat]]
 
             for sample_name, sample in self.events_dict[year].items():
 
@@ -742,9 +744,9 @@ def eval_bdt_preds(
         trainer = Trainer(years=[year], sample_names=eval_samples, modelname=model)
         trainer.load_data(force_reload=True)
 
+        feats = [feat for cat in trainer.train_vars for feat in trainer.train_vars[cat]]
         for sample_name in trainer.events_dict[year]:
 
-            feats = trainer.train_vars["misc"]["feats"] + trainer.train_vars["fatjet"]["feats"]
             dsample = xgb.DMatrix(
                 np.stack(
                     [trainer.events_dict[year][sample_name].get_var(feat) for feat in feats],
