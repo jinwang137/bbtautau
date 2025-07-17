@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import argparse
 import copy
-import json
 import logging
 import pickle
 import time
 import warnings
 from copy import deepcopy
 from pathlib import Path
-from pprint import pprint
 
 import hist
 import matplotlib as mpl
@@ -35,6 +33,7 @@ from bbtautau.HLTs import HLTs
 from bbtautau.postprocessing import Regions, Samples, plotting
 from bbtautau.postprocessing.Samples import CHANNELS, SAMPLES
 from bbtautau.postprocessing.utils import LoadedSample
+from bbtautau.userConfig import MODEL_DIR, SHAPE_VAR
 
 # from bbtautau.postprocessing.bdt import eval_bdt_preds
 
@@ -145,11 +144,11 @@ control_plot_vars = (
 # fitting on bb regressed mass
 shape_vars = [
     ShapeVar(
-        "bbFatJetPNetmassLegacy",
+        SHAPE_VAR["name"],
         r"$m^{bb}_\mathrm{Reg}$ [GeV]",
-        [16, 60, 220],
+        (SHAPE_VAR["nbins"], *SHAPE_VAR["range"]),
         reg=True,
-        blind_window=[110, 140],
+        blind_window=SHAPE_VAR["blind_window"],
     )
 ]
 
@@ -161,28 +160,55 @@ def main(args: argparse.Namespace):
     if args.sensitivity_dir is not None:
         CHANNEL = deepcopy(CHANNEL)
 
-        # read the csv file into a df
-        csv_dir = Path(args.sensitivity_dir).joinpath(f"full/{args.channel}")
-        csv_files = list(csv_dir.glob('*.csv'))
-        if len(csv_files) != 1:
-            raise ValueError(f"Expected exactly 1 Sensitivity CSV file, found {len(csv_files)}: {csv_files} in {csv_dir}")
-        csv_file = csv_files[0]
-        df = pd.read_csv(csv_file)
+        # read the first available FOM CSV file
+        csv_dir = Path(args.sensitivity_dir).joinpath(
+            f"full_presel/{args.model if args.use_bdt else 'ParT'}/{args.channel}"
+        )
+
+        # Look for any FOM-specific CSV files
+        csv_files = list(csv_dir.glob("*_opt_results_*.csv"))
+
+        if len(csv_files) == 0:
+            raise ValueError(f"No sensitivity CSV files found in {csv_dir}")
+
+        # Take the first CSV file found and extract FOM name
+        csv_file = sorted(csv_files)[0]  # Sort for reproducible behavior
+        print(f"Reading CSV: {csv_file}")
+
+        # Extract FOM name from filename like "2022_2022EE_opt_results_2sqrtB_S_var.csv"
+        if "_opt_results_" in csv_file.name:
+            fom_name = csv_file.name.split("_opt_results_")[1].replace(".csv", "")
+        else:
+            fom_name = "unknown"
+
+        # Read as simple CSV (no multi-level headers)
+        opt_results = pd.read_csv(csv_file, index_col=0)
+        print(f"Using FOM: {fom_name}")
+        print(f"Available B_min values: {opt_results.columns.tolist()}")
+
+        # Check if the target Bmin column exists
+        target_col = f"Bmin={args.bmin}"
+        if target_col not in opt_results.columns:
+            raise ValueError(
+                f"B_min={args.bmin} not found in CSV. Available: {opt_results.columns.tolist()}"
+            )
 
         # update the CHANNEL cuts
-        CHANNEL.txbb_cut = float(df.loc[df['Unnamed: 0'] == 'Cut_Xbb', 'Best_lims'].values[0])
+        CHANNEL.txbb_cut = float(opt_results.loc["Cut_Xbb", target_col])
         if args.use_bdt:
-            CHANNEL.txtt_BDT_cut = float(df.loc[df['Unnamed: 0'] == 'Cut_Xtt', 'Best_lims'].values[0])
+            CHANNEL.txtt_BDT_cut = float(opt_results.loc["Cut_Xtt", target_col])
         else:
-            CHANNEL.txtt_cut= float(df.loc[df['Unnamed: 0'] == 'Cut_Xbb', 'Best_lims'].values[0])
+            CHANNEL.txtt_cut = float(opt_results.loc["Cut_Xtt", target_col])
+
+        print(
+            f"Updated TXbb and Txtt cuts to {CHANNEL.txbb_cut} and {CHANNEL.txtt_cut} for {args.channel}"
+        )
 
     data_paths = {
         "signal": args.signal_data_dirs,
         "data": args.data_dir,
         "bg": args.bg_data_dirs,
     }
-
-    print(data_paths)
 
     if args.sigs is None:
         sigs = ["bbtt", "vbfbbtt-k2v0"]
@@ -198,9 +224,7 @@ def main(args: argparse.Namespace):
         filters = None
 
     print("Loading samples")
-    print("Filters:")
-    pprint(filters)
-    print()
+
     # dictionary that will contain all information (from all samples)
     events_dict = load_samples(
         args.year,
@@ -225,15 +249,14 @@ def main(args: argparse.Namespace):
     derive_variables(events_dict, CHANNEL)
 
     print("\nbbtautau assignment")
-    bbtautau_assignment(events_dict, CHANNEL)
+    bbtautau_assignment(events_dict, CHANNEL, agnostic=True)
+    leptons_assignment(events_dict, dR_cut=1.5)
 
     if args.use_bdt:
         print("Predict BDT at inference")
         time_start = time.time()
         compute_bdt_preds(
-            data={
-                args.year: events_dict
-            },  # TODO: rationalize the various functions to work either by year or over set of years
+            data={args.year: events_dict},
             modelname=args.model,
             model_dir=args.model_dir,
         )
@@ -271,15 +294,18 @@ def main(args: argparse.Namespace):
     )
 
 
-def base_filter(fast_mode: bool = False):
+def base_filter(test_mode: bool = False):
     """
     Returns the base filters for the data, signal, and background samples.
     """
 
     base_filters = copy.deepcopy(base_filters_default)
-    if fast_mode:
+    if test_mode:
         for i in range(len(base_filters)):
-            base_filters[i] += [("('ak8FatJetPNetXbbLegacy', '0')", ">=", 0.95)]
+            base_filters[i] += [
+                ("('ak8FatJetPhi', '0')", ">=", 2.9),
+                ("('ak8FatJetParTXbbvsQCD', '0')", ">=", 0.7),
+            ]
 
     return {"data": base_filters, "signal": base_filters, "bg": base_filters}
 
@@ -291,11 +317,7 @@ def bb_filters(
     0.3 corresponds to roughly, 85% signal efficiency, 2% QCD efficiency (pT: 250-400, mSD:0-250, mRegLegacy:40-250)
     """
     if in_filters is None:
-        in_filters = {
-            "data": base_filters_default,
-            "signal": base_filters_default,
-            "bg": base_filters_default,
-        }
+        in_filters = base_filter()
 
     filters = {}
     for dtype, ifilters_bydtype in in_filters.items():
@@ -341,7 +363,7 @@ def trigger_filter(
     triggers: dict[str, list[str]],
     year: str,
     base_filters: list[tuple] = None,
-    fast_mode: bool = False,
+    test_mode: bool = False,
     PNetXbb_cut: float = None,
     num_fatjets: int = 3,
 ) -> dict[str, dict[str, list[list[tuple]]]]:
@@ -349,11 +371,7 @@ def trigger_filter(
     creates a list of filters for each trigger in the list of triggers. It is granular to triggers = {"data": { [...] , ...}, "signal": { [...]}, "bg": { [...]}}.
     """
     if base_filters is None:
-        base_filters = copy.deepcopy(base_filters_default)
-
-    if fast_mode:
-        for i in range(len(base_filters)):
-            base_filters[i] += [("('ak8FatJetPNetXbbLegacy', '0')", ">=", 0.98)]
+        base_filters = base_filter(test_mode)
 
     filters_dict = {}
 
@@ -373,7 +391,7 @@ def trigger_filter(
         filters_dict[dtype] = [
             ifilter + [(f"('{trigger}', '0')", "==", 1)]
             for trigger in trigger_list
-            for ifilter in base_filters
+            for ifilter in base_filters[dtype]
         ]
 
     if PNetXbb_cut is not None:
@@ -624,7 +642,7 @@ def load_samples(
                 ),
             )
             for sample in samples.values()
-            if sample.selector is not None
+            if sample.selector is not None  # this line is key to only load bbtt once
         )
 
         keys = [key for key, sample in samples.items() if sample.selector is not None]
@@ -1135,7 +1153,7 @@ def compute_bdt_preds(
     """
 
     bst = xgb.Booster()
-    bst.load_model(model_dir / f"{modelname}.json")
+    bst.load_model(model_dir / modelname / f"{modelname}.json")
     feature_names = [
         feat
         for cat in bdt_config[modelname]["train_vars"]
@@ -1755,27 +1773,33 @@ def parse_args(parser=None):
     parser.add_argument(
         "--model",
         help="Name of the BDT model to use",
-        default="28May25_baseline",
+        default="10Jul25_leptons",
         type=str,
     )
 
-    # TODO handle this with global variables
     parser.add_argument(
         "--model-dir",
         help="Path to the BDT model directory",
-        default="/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/trained_models/28May25_baseline_all",
+        default=MODEL_DIR,
         type=str,
     )
 
     parser.add_argument(
         "--sensitivity-dir",
-        help="Path to the sensitivity study's output directory that has a csv file under {dir}/full{channel}. The TXbb/Txtt cuts will be extracted/ If not provided, the script will use the ones in Samples.py",
+        help="Path to the sensitivity study's output directory that has a csv file under {dir}/full_presel/{channel}. The TXbb/Txtt cuts will be extracted/ If not provided, the script will use the ones in Samples.py",
         default="None",
         type=str,
     )
 
+    parser.add_argument(
+        "--bmin",
+        help="Minimum bkg yield for the TXbb/Txtt cuts. Need to be present in the csv file",
+        default=1,
+        type=float,
+    )
+
     args = parser.parse_args()
-    save_args = deepcopy(args)
+    # save_args = deepcopy(args)
 
     args.model_dir = Path(args.model_dir)
 
@@ -1796,19 +1820,18 @@ def parse_args(parser=None):
         args.signal_data_dirs = [args.data_dir]
 
     # save args in args.plot_dir and args.template_dir if they exit
-    if args.plot_dir:
-        args.plot_dir = Path(args.plot_dir) / args.channel / args.year
-        args.plot_dir.mkdir(parents=True, exist_ok=True)
-        with (args.plot_dir / "args.json").open("w") as f:
-            json.dump(save_args.__dict__, f, indent=4)
+    # if args.plot_dir:
+    #     args.plot_dir = Path(args.plot_dir) / args.channel / args.year
+    #     args.plot_dir.mkdir(parents=True, exist_ok=True)
+    # with (args.plot_dir / "args.json").open("w") as f:
+    #     json.dump(save_args.__dict__, f, indent=4)
 
-    if args.template_dir:
-        args.template_dir = Path(args.template_dir) / args.channel
-        (args.template_dir / "cutflows" / args.year).mkdir(parents=True, exist_ok=True)
-        with (args.template_dir / "args.json").open("w") as f:
-            json.dump(save_args.__dict__, f, indent=4)
+    # if args.template_dir:
+    #     args.template_dir = Path(args.template_dir) / args.channel
+    #     (args.template_dir / "cutflows" / args.year).mkdir(parents=True, exist_ok=True)
+    # with (args.template_dir / "args.json").open("w") as f:
+    #     json.dump(save_args.__dict__, f, indent=4)
 
-    print(args)
     return args
 
 

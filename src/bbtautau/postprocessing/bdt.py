@@ -31,7 +31,7 @@ from tabulate import tabulate
 from bbtautau.HLTs import HLTs
 from bbtautau.postprocessing.rocUtils import ROCAnalyzer
 from bbtautau.postprocessing.utils import LoadedSample
-from bbtautau.userConfig import DATA_PATHS
+from bbtautau.userConfig import CLASSIFIER_DIR, DATA_PATHS, MODEL_DIR
 
 # TODO
 # - k-fold cross validation
@@ -40,9 +40,6 @@ from bbtautau.userConfig import DATA_PATHS
 DATA_DIR = Path(
     "/ceph/cms/store/user/lumori/bbtautau"
 )  # default directory for saving BDT predictions
-CLASSIFIER_DIR = Path(
-    "/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/"
-)  # default directory for saving trained models
 
 
 class Trainer:
@@ -64,7 +61,7 @@ class Trainer:
         years: list[str],
         sample_names: list[str] = None,
         modelname: str = None,
-        model_dir: str = None,
+        output_dir: str = None,
     ) -> None:
         if years[0] == "all":
             print("Using all years")
@@ -87,10 +84,10 @@ class Trainer:
 
         self.events_dict = {year: {} for year in self.years}
 
-        if model_dir is not None:
-            self.model_dir = CLASSIFIER_DIR / model_dir
+        if output_dir is not None:
+            self.model_dir = CLASSIFIER_DIR / output_dir
         else:
-            self.model_dir = CLASSIFIER_DIR / f"trained_models/{self.modelname}"
+            self.model_dir = MODEL_DIR / self.modelname
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
     def load_data(self, force_reload=False):
@@ -829,7 +826,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.study_rescaling:
-        # TODO check adn print a note that other arguments are ignored if specified
         study_rescaling(importance_only=args.importance_only)
         exit()
 
@@ -847,7 +843,7 @@ if __name__ == "__main__":
         exit()
 
     trainer = Trainer(
-        years=args.years, sample_names=args.samples, modelname=args.model, model_dir=args.save_dir
+        years=args.years, sample_names=args.samples, modelname=args.model, output_dir=args.save_dir
     )
 
     if args.train:

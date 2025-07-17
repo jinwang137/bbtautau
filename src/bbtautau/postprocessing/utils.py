@@ -49,7 +49,7 @@ def concatenate_loaded_samples(loaded_samples: list[LoadedSample]) -> LoadedSamp
     """Concatenate multiple LoadedSample objects. Checks if the Samples are the same, or raises an error."""
 
     # check if the samples are the same
-    if not all(ls.sample == loaded_samples[0].sample for ls in loaded_samples):
+    if not all(ls.sample.label == loaded_samples[0].sample.label for ls in loaded_samples):
         raise ValueError("Samples are not the same")
 
     # check if the masks exist
