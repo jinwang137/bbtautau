@@ -163,18 +163,22 @@ def main(args: argparse.Namespace):
 
         # read the csv file into a df
         csv_dir = Path(args.sensitivity_dir).joinpath(f"full/{args.channel}")
-        csv_files = list(csv_dir.glob('*.csv'))
+        csv_files = list(csv_dir.rglob('*.csv'))
         if len(csv_files) != 1:
             raise ValueError(f"Expected exactly 1 Sensitivity CSV file, found {len(csv_files)}: {csv_files} in {csv_dir}")
         csv_file = csv_files[0]
         df = pd.read_csv(csv_file)
 
+        # check if the cut column label exists in the csv file
+        if args.cut_col_key not in df.columns:
+                raise KeyError(f"Cut column '{args.cut_col_key}' does not exist in the DataFrame")
+
         # update the CHANNEL cuts
-        CHANNEL.txbb_cut = float(df.loc[df['Unnamed: 0'] == 'Cut_Xbb', 'Best_lims'].values[0])
+        CHANNEL.txbb_cut = float(df.loc[df['Unnamed: 0'] == 'Cut_Xbb', args.cut_col_key].values[0])
         if args.use_bdt:
-            CHANNEL.txtt_BDT_cut = float(df.loc[df['Unnamed: 0'] == 'Cut_Xtt', 'Best_lims'].values[0])
+            CHANNEL.txtt_BDT_cut = float(df.loc[df['Unnamed: 0'] == 'Cut_Xtt', args.cut_col_key].values[0])
         else:
-            CHANNEL.txtt_cut= float(df.loc[df['Unnamed: 0'] == 'Cut_Xbb', 'Best_lims'].values[0])
+            CHANNEL.txtt_cut= float(df.loc[df['Unnamed: 0'] == 'Cut_Xbb', args.cut_col_key].values[0])
 
     data_paths = {
         "signal": args.signal_data_dirs,
@@ -1693,6 +1697,13 @@ def parse_args(parser=None):
         "--sensitivity-dir",
         help="Path to the sensitivity study's output directory that has a csv file under {dir}/full{channel}. The TXbb/Txtt cuts will be extracted/ If not provided, the script will use the ones in Samples.py",
         default="None",
+        type=str,
+    )
+
+    parser.add_argument(
+        "--cut-col-key",
+        help="The column name of the Xbb/Xtt cuts in the csv file. The cuts are for making templates",
+        default="Bmin=1",
         type=str,
     )
 
