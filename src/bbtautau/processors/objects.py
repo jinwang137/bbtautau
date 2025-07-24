@@ -16,7 +16,7 @@ from coffea.nanoevents.methods.nanoaod import (
     JetArray,
     MuonArray,
     TauArray,
-    MetArray,
+    Met,
 )
 
 from bbtautau.HLTs import HLTs
@@ -470,7 +470,7 @@ def CA_got(met_pt, met_phi, fatjets_mass, tau0_eta, tau1_eta, tau0_phi, tau1_phi
     return mass
 
 
-def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MetArray):
+def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: Met):
 
     if taus is not None:
         
