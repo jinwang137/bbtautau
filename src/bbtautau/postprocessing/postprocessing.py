@@ -193,15 +193,8 @@ def main(args: argparse.Namespace):
             raise ValueError(
                 f"B_min={args.bmin} not found in CSV. Available: {opt_results.columns.tolist()}"
             )
-            
-        # read the csv file into a df
-        csv_dir = Path(args.sensitivity_dir).joinpath(f"full/{args.channel}")
-        csv_files = list(csv_dir.rglob('*.csv'))
-        if len(csv_files) != 1:
-            raise ValueError(f"Expected exactly 1 Sensitivity CSV file, found {len(csv_files)}: {csv_files} in {csv_dir}")
-        csv_file = csv_files[0]
-        df = pd.read_csv(csv_file)
 
+        # update the CHANNEL cuts
         CHANNEL.txbb_cut = float(opt_results.loc["Cut_Xbb", target_col])
         if args.use_bdt:
             CHANNEL.txtt_BDT_cut = float(opt_results.loc["Cut_Xtt", target_col])
