@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import gc
 import logging
 import pickle
 import time
@@ -201,7 +202,7 @@ def main(args: argparse.Namespace):
             CHANNEL.txtt_cut = float(opt_results.loc["Cut_Xtt", target_col])
 
         print(
-            f"Updated TXbb and Txtt cuts to {CHANNEL.txbb_cut} and {CHANNEL.txtt_cut} for {args.channel}"
+            f"Updated TXbb and Txtt cuts to {CHANNEL.txbb_cut} and {CHANNEL.txtt_cut if not args.use_bdt else CHANNEL.txtt_BDT_cut} for {args.channel}"
         )
 
     data_paths = {
@@ -219,7 +220,8 @@ def main(args: argparse.Namespace):
 
     if args.templates:
         filters = bb_filters(num_fatjets=3, bb_cut=0.3)
-        filters = tt_filters(CHANNEL, filters, num_fatjets=3, tt_cut=0.3)
+        print("Using bb filters")
+        # filters = tt_filters(CHANNEL, filters, num_fatjets=3, tt_cut=0.3)
     else:
         filters = None
 
@@ -245,6 +247,8 @@ def main(args: argparse.Namespace):
     apply_triggers(events_dict, args.year, CHANNEL)
     cutflow.add_cut(events_dict, "Triggers", "finalWeight")
     print(cutflow.cutflow)
+
+    delete_columns(events_dict, args.year, channels=[CHANNEL])
 
     derive_variables(events_dict, CHANNEL)
 
@@ -293,6 +297,9 @@ def main(args: argparse.Namespace):
         shape_vars,
     )
 
+    del templates
+    gc.collect()
+
 
 def base_filter(test_mode: bool = False):
     """
@@ -334,7 +341,7 @@ def tt_filters(
     channel: Channel,
     in_filters: dict[str, list[tuple]] = None,
     num_fatjets: int = 3,
-    tt_cut: float = 0.9,
+    tt_cut: float = 0.3,
 ):
     if in_filters is None:
         in_filters = base_filter()
@@ -1795,7 +1802,7 @@ def parse_args(parser=None):
         "--bmin",
         help="Minimum bkg yield for the TXbb/Txtt cuts. Need to be present in the csv file",
         default=1,
-        type=float,
+        type=int,
     )
 
     args = parser.parse_args()
@@ -1820,17 +1827,20 @@ def parse_args(parser=None):
         args.signal_data_dirs = [args.data_dir]
 
     # save args in args.plot_dir and args.template_dir if they exit
-    # if args.plot_dir:
-    #     args.plot_dir = Path(args.plot_dir) / args.channel / args.year
-    #     args.plot_dir.mkdir(parents=True, exist_ok=True)
-    # with (args.plot_dir / "args.json").open("w") as f:
-    #     json.dump(save_args.__dict__, f, indent=4)
+    if args.plot_dir:
+        args.plot_dir = Path(args.plot_dir) / args.channel / args.year
+        args.plot_dir.mkdir(parents=True, exist_ok=True)
+        # with (args.plot_dir / "args.json").open("w") as f:
+        #     try:
+        #         json.dump(save_args.__dict__, f, indent=4)
+        #     except Exception as e:
+        #         print(f"Error saving args: {e}")
 
-    # if args.template_dir:
-    #     args.template_dir = Path(args.template_dir) / args.channel
-    #     (args.template_dir / "cutflows" / args.year).mkdir(parents=True, exist_ok=True)
-    # with (args.template_dir / "args.json").open("w") as f:
-    #     json.dump(save_args.__dict__, f, indent=4)
+    if args.template_dir:
+        args.template_dir = Path(args.template_dir) / args.channel
+        (args.template_dir / "cutflows" / args.year).mkdir(parents=True, exist_ok=True)
+        # with (args.template_dir / "args.json").open("w") as f:
+        #     json.dump(save_args.__dict__, f, indent=4)
 
     return args
 
