@@ -33,7 +33,7 @@ from postprocessing import (
     trigger_filter,
 )
 from Samples import CHANNELS
-from sklearn.metrics import roc_curve
+#from sklearn.metrics import roc_curve
 
 from bbtautau.HLTs import HLTs
 
@@ -51,13 +51,17 @@ hep.style.use("CMS")
 # print(f"Time taken for import setup: {end_time - start_time} seconds")
 
 # Global variables
-MAIN_DIR = Path("/home/users/lumori/bbtautau/")
+#MAIN_DIR = Path("/home/users/lumori/bbtautau/")
+MAIN_DIR = Path("/eos/user/j/jinwa/bbtautau/")
 BDT_EVAL_DIR = Path("/ceph/cms/store/user/lumori/bbtautau/BDT_predictions/")
 TODAY = date.today()  # to name output folder
-SIG_KEYS = {"hh": "bbtthh", "he": "bbtthe", "hm": "bbtthm"}  # TODO Generalize for other signals
+#SIG_KEYS = {"hh": "vbfbbtt-k2v0hh", "he": "bbtthe", "hm": "bbtthm"}  # TODO Generalize for other signals
+SIG_KEYS = {"hh": "vbfbbtt-k2v0hh"}
 
-data_dir_2022 = "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal"
-data_dir_otheryears = "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal"
+# data_dir_2022 = "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal"
+# data_dir_otheryears = "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr24Fix_v12_private_signal"
+data_dir_2022 = "/eos/user/j/jinwa/bbtautau/skimmer/24Nov7Signal_v12_private_signal"
+data_dir_otheryears = "/eos/user/j/jinwa/bbtautau/skimmer/24Nov7Signal_v12_private_signal"
 
 data_paths = {
     "2022": {
@@ -151,7 +155,7 @@ class Analyser:
                 channels=[self.channel],
                 filters_dict=filters_dict,
                 load_columns=columns,
-                load_just_ggf=True,
+                load_just_ggf=False,
                 restrict_data_to_channel=True,
                 loaded_samples=True,
                 multithread=True,
@@ -377,7 +381,8 @@ class Analyser:
     def plot_mass(self, years):
         for key, label in zip(["hhbbtt", "data"], ["HHbbtt", "Data"]):
             print(f"Plotting mass for {label}")
-            if key == "hhbbtt":
+            #if key == "hhbbtt":
+            if key == "hhbbtt" or key == "HHbbtt" or key == "data":
                 events = pd.concat([self.events_dict[year][self.sig_key].events for year in years])
             else:
                 events = pd.concat(
@@ -396,7 +401,8 @@ class Analyser:
                 zip(["bb", "tt"], ["bb FatJet", rf"{self.channel.label} FatJet"])
             ):
                 ax = axs[i]
-                if key == "hhbbtt":
+                # if key == "hhbbtt":
+                if key == "hhbbtt" or key == "HHbbtt" or key == "data":
                     mask = np.concatenate(
                         [self.events_dict[year][self.sig_key].get_mask(jet) for year in years],
                         axis=0,

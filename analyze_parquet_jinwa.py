@@ -156,8 +156,8 @@ def plot_distributions(df, output_dir="plots"):
         plt.title('CA_tauhtauh_fatjet_idx')
     
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/quick_check_add6.png', dpi=150, bbox_inches='tight')
-    print(f"Plot saved to {output_dir}/quick_check_add6.png")
+    plt.savefig(f'{output_dir}/quick_check_condor.png', dpi=150, bbox_inches='tight')
+    print(f"Plot saved to {output_dir}/quick_check_condor.png")
     plt.show()
 
 def analyze_selections(df):

@@ -549,7 +549,7 @@ def get_columns(
         ("ak8FatJetPhi", num_fatjets),
     ]
 
-    # common columns
+    # common columns ,jin add one
     if legacy_taggers:
         columns_data += [
             ("ak8FatJetPNetXbbLegacy", num_fatjets),
@@ -558,6 +558,7 @@ def get_columns(
             ("ak8FatJetParTmassResApplied", num_fatjets),
             ("ak8FatJetParTmassVisApplied", num_fatjets),
             ("ak8FatJetMsd", num_fatjets),
+            ("ak8FatJetCAmatched_2BoostedTaus", num_fatjets)
         ]
 
     if ParT_taggers:
@@ -709,6 +710,19 @@ def load_samples(
 
     signals = Samples.SIGNALS.copy()
 
+    #jin for vbf
+    if "bbtt" in signals:
+        signals.remove("bbtt")
+    if "vbfbbtt" in signals:
+        signals.remove("vbfbbtt")
+
+    for ch in CHANNELS:
+        if f"vbfbbtt{ch}" in samples:
+            del samples[f"vbfbbtt{ch}"]
+        if f"bbtt{ch}" in samples:
+            del samples[f"bbtt{ch}"]
+    #jin for vbf
+
     if load_just_ggf:  # quite ad hoc but should become obsolete
         if "vbfbbtt" in signals:
             signals.remove("vbfbbtt")
@@ -799,6 +813,13 @@ def load_samples(
                 )
 
     del events_dict[signal]
+
+    del events_dict["jetmet"]
+    del events_dict["tau"]
+    del events_dict["bbtt"]
+    del events_dict["vbfbbtt"]
+
+    print(events_dict.keys())
 
     return events_dict
 
@@ -1117,26 +1138,26 @@ def bbtautau_assignment(
         
         # Calculate event_matched_tau_pt_sum and related variables for the selected tautau FatJet
         # This replaces the object-level calculation to ensure consistency with tautau selection
-        try:
-            event_matched_tau_pt_sum, event_matched_tau_count, event_matched_tau_indices = calculate_event_matched_tau_pt_sum(sample, tautau_pick)
+        # try:
+        #     event_matched_tau_pt_sum, event_matched_tau_count, event_matched_tau_indices = calculate_event_matched_tau_pt_sum(sample, tautau_pick)
             
-            # Store all tau matching results
-            sample.events[("event_matched_tau_pt_sum", "0")] = event_matched_tau_pt_sum
-            sample.events[("event_matched_tau_count", "0")] = event_matched_tau_count
+        #     # Store all tau matching results
+        #     sample.events[("event_matched_tau_pt_sum", "0")] = event_matched_tau_pt_sum
+        #     sample.events[("event_matched_tau_count", "0")] = event_matched_tau_count
             
-            # Store matched tau indices (as multiple columns for each possible matched tau)
-            max_matched_taus = event_matched_tau_indices.shape[1]
-            for i in range(max_matched_taus):
-                sample.events[(f"event_matched_tau_idx_{i}", "0")] = event_matched_tau_indices[:, i]
+        #     # Store matched tau indices (as multiple columns for each possible matched tau)
+        #     max_matched_taus = event_matched_tau_indices.shape[1]
+        #     for i in range(max_matched_taus):
+        #         sample.events[(f"event_matched_tau_idx_{i}", "0")] = event_matched_tau_indices[:, i]
                 
-        except Exception as e:
-            logger.warning(f"Could not calculate tau matching variables for sample {_skey}: {e}")
-            # Fallback: set all to zeros/defaults
-            sample.events[("event_matched_tau_pt_sum", "0")] = np.zeros(len(sample.events), dtype=float)
-            sample.events[("event_matched_tau_count", "0")] = np.zeros(len(sample.events), dtype=int)
-            # Set matched tau indices to -1 (indicating no match)
-            for i in range(10):  # Max 10 possible matched taus
-                sample.events[(f"event_matched_tau_idx_{i}", "0")] = np.full(len(sample.events), -1, dtype=int)
+        # except Exception as e:
+        #     logger.warning(f"Could not calculate tau matching variables for sample {_skey}: {e}")
+        #     # Fallback: set all to zeros/defaults
+        #     sample.events[("event_matched_tau_pt_sum", "0")] = np.zeros(len(sample.events), dtype=float)
+        #     sample.events[("event_matched_tau_count", "0")] = np.zeros(len(sample.events), dtype=int)
+        #     # Set matched tau indices to -1 (indicating no match)
+        #     for i in range(10):  # Max 10 possible matched taus
+        #         sample.events[(f"event_matched_tau_idx_{i}", "0")] = np.full(len(sample.events), -1, dtype=int)
 
 
 def _add_bdt_scores(

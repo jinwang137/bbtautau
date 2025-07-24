@@ -16,6 +16,7 @@ from coffea.nanoevents.methods.nanoaod import (
     JetArray,
     MuonArray,
     TauArray,
+    MetArray,
 )
 
 from bbtautau.HLTs import HLTs
@@ -439,3 +440,121 @@ def get_Matching(fatjets: FatJetArray, taus: TauArray):
         best_fatjet_idx = ak.full_like(n_fatjets, -999, dtype=int)
 
     return fatjets, event_matched_tau_pt_sum, final_tau_indices, best_fatjet_idx
+
+
+def CA_got(met_pt, met_phi, fatjets_mass, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt):
+    invalid = (
+        (met_pt == -999)
+        | (met_phi == -999)
+        | (fatjets_mass == -999)
+        | (tau0_eta == -999)
+        | (tau1_eta == -999)
+        | (tau0_phi == -999)
+        | (tau1_phi == -999)
+        | (tau0_pt == -999)
+        | (tau1_pt == -999)
+    )
+
+    dphi0 = met_phi - tau0_phi
+    pmet0 = met_pt * np.cos(dphi0)
+    dphi1 = met_phi - tau1_phi
+    pmet1 = met_pt * np.cos(dphi1)
+
+    denom = np.sqrt(
+        (tau0_pt / (tau0_pt + pmet0)) * (tau1_pt / (tau1_pt + pmet1))
+    )
+    denom = ak.where(denom == 0, 1, denom)
+
+    mass = fatjets_mass / denom
+    mass = ak.where(invalid, -999, mass)
+    return mass
+
+
+def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MetArray):
+
+    if taus is not None:
+        
+        n_events = len(fatjets)
+        n_fatjets = ak.num(fatjets, axis=1)
+        n_taus = ak.num(taus, axis=1)
+        
+        
+        has_fatjets = n_fatjets > 0
+        has_taus = n_taus > 0
+        can_match = has_fatjets & has_taus
+        
+        
+        fatjets["CA_mass"] = ak.full_like(fatjets.pt, -999.0, dtype=float)
+        no2tau = ak.full_like(fatjets.pt, False, dtype=bool)  
+
+        met_pt = met.pt
+        met_phi = met.phi
+        
+        
+        
+        if ak.any(can_match):
+            
+            fatjet_boostedtau_pairs = ak.cartesian([fatjets, taus], nested=True)
+            fatjets_in_pairs = fatjet_boostedtau_pairs["0"]
+            boostedtaus_in_pairs = fatjet_boostedtau_pairs["1"]
+
+            dR = delta_r(fatjets_in_pairs.eta, fatjets_in_pairs.phi, boostedtaus_in_pairs.eta, boostedtaus_in_pairs.phi)
+
+            close_matches = dR < 0.8
+            num_close_matches = ak.sum(close_matches, axis = -1)
+
+            matched_taus_per_fatjet = taus[close_matches]
+
+            n_matched = ak.num(matched_taus_per_fatjet, axis=-1)
+            no2tau = n_matched < 2
+
+            sorted_indices = ak.argsort(matched_taus_per_fatjet.pt, axis=-1, ascending=False)
+            sorted_taus = matched_taus_per_fatjet[sorted_indices]
+            top2_taus = ak.pad_none(sorted_taus, 2, axis=-1)[..., :2]
+
+
+            tau0_eta = ak.fill_none(top2_taus.eta[..., 0], -999)
+            tau1_eta = ak.fill_none(top2_taus.eta[..., 1], -999)
+            tau0_phi = ak.fill_none(top2_taus.phi[..., 0], -999)
+            tau1_phi = ak.fill_none(top2_taus.phi[..., 1], -999)
+
+            tau0_pt = ak.fill_none(top2_taus.pt[..., 0], -999)
+            tau1_pt = ak.fill_none(top2_taus.pt[..., 1], -999)
+
+            fatjets_mass = fatjets.mass
+
+
+            mass_boostedtau = CA_got(met_pt, met_phi, fatjets_mass, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt)
+            fatjets["CA_mass"] = ak.where(~no2tau, mass_boostedtau, fatjets["CA_mass"])
+
+            if ak.any(no2tau):
+
+                pass
+
+                # fatjet_boostedtau_pairs = ak.cartesian([fatjets, taus], nested=True)
+                # fatjets_in_pairs = fatjet_boostedtau_pairs["0"]
+                # boostedtaus_in_pairs = fatjet_boostedtau_pairs["1"]
+
+                # dR = delta_r(fatjets_in_pairs.eta, fatjets_in_pairs.phi, boostedtaus_in_pairs.eta, boostedtaus_in_pairs.phi)
+
+                # close_matches = dR < 0.8
+                # num_close_matches = ak.sum(close_matches, axis = -1)
+
+                # matched_taus_per_fatjet = taus[close_matches]
+
+                # n_matched = ak.num(matched_taus_per_fatjet, axis=-1)
+                # no2tau = n_matched < 2
+
+                # sorted_indices = ak.argsort(matched_taus_per_fatjet.pt, axis=-1, ascending=False)
+                # sorted_taus = matched_taus_per_fatjet[sorted_indices]
+                # top2_taus = ak.pad_none(sorted_taus, 2, axis=-1)[..., :2]
+
+                # mass_boostedtau = CA_got(fatjets, top2_taus)
+                # fatjets["CA_mass"] = ak.where(valid_mask, mass_boostedtau, fatjets["CA_mass"])
+
+            
+    else:
+
+        fatjets["CA_mass"] = ak.full_like(fatjets.pt, -999.0, dtype=float)
+
+    return fatjets

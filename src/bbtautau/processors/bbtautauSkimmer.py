@@ -230,6 +230,7 @@ class bbtautauSkimmer(SkimmerABC):
         #CA variables
         ca_vars = [
             "matched_2BoostedTaus",
+            "mass",
         ]
 
         self.skim_vars["FatJet"] = {
@@ -383,6 +384,8 @@ class bbtautauSkimmer(SkimmerABC):
 
         fatjets, ca_tau_pt_sum, ca_tau_indices, ca_best_fatjet_idx = objects.get_Matching(fatjets, boostedtaus)
         print("ak8 Matching Taus", f"{time.time() - start:.2f}")
+        fatjets = objects.get_CA_MASS(fatjets, boostedtaus, met)
+        print("CA mass", f"{time.time() - start:.2f}")
 
         #########################
         # Save / derive variables
