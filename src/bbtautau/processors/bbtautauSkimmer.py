@@ -82,11 +82,15 @@ class bbtautauSkimmer(SkimmerABC):
             "charge": "charge",
             "idMVAnewDM2017v2": "idMVAnewDM2017v2",
         },
+        "SubJet": {
+            **P4,
+        },
         "FatJet": {
             **P4,
             "msoftdrop": "Msd",
             "t32": "Tau3OverTau2",
             "rawFactor": "rawFactor",
+            "particleNet_massCorr": "particleNet_massCorr",
             # tagger variables added below
         },
         "GenHiggs": P4,
@@ -231,6 +235,10 @@ class bbtautauSkimmer(SkimmerABC):
         ca_vars = [
             "matched_2BoostedTaus",
             "mass",
+            "ntaus_perfatjets",
+            "mass_subjets",
+            "mass_boostedtaus",
+            "nsubjets_perfatjets",
         ]
 
         self.skim_vars["FatJet"] = {
@@ -297,6 +305,12 @@ class bbtautauSkimmer(SkimmerABC):
         muons, mtrigvars = objects.good_muons(events, events.Muon, year)
         taus, ttrigvars = objects.good_taus(events, events.Tau, year)
         boostedtaus = objects.good_boostedtaus(events, events.boostedTau)
+
+        # SubJets
+        num_subjets = 3
+        print("subjet.test")
+        subjets = events.SubJet
+        print("!!!!!!!!!")
 
         # These are bools saying if the lepton is matched to a trigger object or not
         trigMatchVars = {**etrigvars, **mtrigvars, **ttrigvars}
@@ -384,7 +398,7 @@ class bbtautauSkimmer(SkimmerABC):
 
         fatjets, ca_tau_pt_sum, ca_tau_indices, ca_best_fatjet_idx = objects.get_Matching(fatjets, boostedtaus)
         print("ak8 Matching Taus", f"{time.time() - start:.2f}")
-        fatjets = objects.get_CA_MASS(fatjets, boostedtaus, met)
+        fatjets = objects.get_CA_MASS(fatjets, boostedtaus, met, subjets)
         print("CA mass", f"{time.time() - start:.2f}")
 
         #########################
@@ -424,6 +438,12 @@ class bbtautauSkimmer(SkimmerABC):
             for (var, key) in self.skim_vars["BoostedTau"].items()
         }
         leptonVars = {**electronVars, **muonVars, **tauVars, **boostedtauVars}
+
+        #Subjets
+        subjetVars = {
+            f"SubJet{key}": pad_val(subjets[var], num_subjets, axis=1)
+            for (var, key) in self.skim_vars["SubJet"].items()
+        }
 
         # AK4 Jet variables
         jet_skimvars = self.skim_vars["Jet"]
@@ -510,6 +530,7 @@ class bbtautauSkimmer(SkimmerABC):
         eventVars["nBoostedTaus"] = ak.num(boostedtaus).to_numpy()
         eventVars["nJets"] = ak.num(jets).to_numpy()
         eventVars["nFatJets"] = ak.num(fatjets).to_numpy()
+        eventVars["nSubJets"] = ak.num(subjets).to_numpy()
 
         #jin for CA
         eventVars["CA_matched_tau_pt_sum"] = ca_tau_pt_sum.to_numpy()
@@ -564,6 +585,7 @@ class bbtautauSkimmer(SkimmerABC):
             **ak4JetVars,
             **ak8FatJetVars,
             **metVars,
+            **subjetVars,
             # **bbFatJetVars,
             # **trigObjFatJetVars,
             # **vbfJetVars,
