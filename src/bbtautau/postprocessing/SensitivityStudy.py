@@ -429,8 +429,9 @@ class Analyser:
                             "ak8FatJetPNetmassLegacy",
                             "ak8FatJetParTmassResApplied",
                             "ak8FatJetParTmassVisApplied",
+                            "ak8FatJetCAmass",
                         ],
-                        ["SoftDrop", "PNetLegacy", "ParT Res", "ParT Vis"],
+                        ["SoftDrop", "PNetLegacy", "ParT Res", "ParT Vis", "CA"],
                     )
                 ):
                     ax.hist(

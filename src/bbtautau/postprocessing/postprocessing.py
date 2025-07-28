@@ -42,176 +42,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("boostedhh.utils")
 
 
-def calculate_event_matched_tau_pt_sum(sample: Sample, tautau_jet_indices: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Calculate the sum of pT for the top 2 BoostedTaus matched to the selected tautau FatJet.
-    
-    This function replaces the object-level calculation to ensure consistency with 
-    the final tautau FatJet selection in postprocessing.
-    
-    Args:
-        sample: The Sample object containing event data
-        tautau_jet_indices: Array of indices for the selected tautau FatJet per event
-    
-    Returns:
-        tuple containing:
-        - event_matched_tau_pt_sum: Array of pT sums for each event
-        - event_matched_tau_count: Array of number of matched taus per event  
-        - event_matched_tau_indices: Array of matched tau indices (padded with -1)
-    """
-    # Initialize result arrays
-    event_matched_tau_pt_sum = np.zeros(len(sample.events), dtype=float)
-    event_matched_tau_count = np.zeros(len(sample.events), dtype=int)
-    event_matched_tau_indices = np.full((len(sample.events), 10), -1, dtype=int)  # Max 10 matched taus, padded with -1
-    
-    # Initialize statistics counters
-    stats = {
-        "total_events": len(sample.events),
-        "events_no_taus": 0,
-        "events_insufficient_valid_taus": 0,
-        "events_no_matched_taus": 0,
-        "events_insufficient_matched_taus": 0,
-        "events_successful": 0,
-    }
-    
-    # Statistics counters
-    stats = {
-        "events_no_taus": 0,
-        "events_insufficient_valid_taus": 0,
-        "events_no_matched_taus": 0,
-        "events_insufficient_matched_taus": 0,
-        "events_successful": 0
-    }
-    
-    # Check if required variables exist
-    if "nBoostedTaus" not in sample.events.columns or "BoostedTauPt" not in sample.events.columns:
-        logger.warning("BoostedTau variables not found in sample, returning zeros for all tau matching variables")
-        return event_matched_tau_pt_sum, event_matched_tau_count, event_matched_tau_indices
-    
-    try:
-        # Get tautau FatJet properties
-        tautau_eta = sample.get_var("ak8FatJetEta")[range(len(tautau_jet_indices)), tautau_jet_indices]
-        tautau_phi = sample.get_var("ak8FatJetPhi")[range(len(tautau_jet_indices)), tautau_jet_indices]
-        
-        # Get BoostedTau information
-        n_taus = sample.get_var("nBoostedTaus")
-        max_taus = 10  # Assume max 10 taus per event
-        
-        # Process events that have both selected tautau FatJet and BoostedTaus
-        has_taus = n_taus > 0
-        
-        if np.any(has_taus):
-            # Get tau arrays for events with taus
-            tau_pts = np.zeros((len(sample.events), max_taus))
-            tau_etas = np.zeros((len(sample.events), max_taus))
-            tau_phis = np.zeros((len(sample.events), max_taus))
-            
-            # Fill tau arrays from available columns
-            for i in range(max_taus):
-                if f"BoostedTauPt{i}" in sample.events.columns:
-                    tau_pts[:, i] = sample.get_var(f"BoostedTauPt{i}")
-                if f"BoostedTauEta{i}" in sample.events.columns:
-                    tau_etas[:, i] = sample.get_var(f"BoostedTauEta{i}")
-                if f"BoostedTauPhi{i}" in sample.events.columns:
-                    tau_phis[:, i] = sample.get_var(f"BoostedTauPhi{i}")
-            
-            # Calculate deltaR between tautau FatJet and each tau
-            for event_idx in range(len(sample.events)):
-                if not has_taus[event_idx] or n_taus[event_idx] <= 0:
-                    stats["events_no_taus"] += 1
-                    continue
-                    
-                n_event_taus = min(int(n_taus[event_idx]), max_taus)
-                
-                # Calculate deltaR for all taus in this event
-                event_tau_pts = tau_pts[event_idx, :n_event_taus]
-                event_tau_etas = tau_etas[event_idx, :n_event_taus]
-                event_tau_phis = tau_phis[event_idx, :n_event_taus]
-                
-                # Filter out invalid taus (pt <= 0)
-                valid_taus = event_tau_pts > 0
-                valid_indices = np.where(valid_taus)[0]
-                
-                if not np.any(valid_taus):
-                    stats["events_insufficient_valid_taus"] += 1
-                    continue
-                    
-                valid_pts = event_tau_pts[valid_taus]
-                valid_etas = event_tau_etas[valid_taus]
-                valid_phis = event_tau_phis[valid_taus]
-                
-                # Calculate deltaR
-                delta_eta = valid_etas - tautau_eta[event_idx]
-                delta_phi = valid_phis - tautau_phi[event_idx]
-                # Handle phi wrapping
-                delta_phi = np.where(delta_phi > np.pi, delta_phi - 2*np.pi, delta_phi)
-                delta_phi = np.where(delta_phi < -np.pi, delta_phi + 2*np.pi, delta_phi)
-                delta_r = np.sqrt(delta_eta**2 + delta_phi**2)
-                
-                # Find matched taus (deltaR < 0.8)
-                matched_mask = delta_r < 0.8
-                matched_pts = valid_pts[matched_mask]
-                matched_indices = valid_indices[matched_mask]
-                
-                # Store matched tau count and indices
-                event_matched_tau_count[event_idx] = len(matched_pts)
-                if len(matched_pts) > 0:
-                    # Store matched tau indices (up to max available slots)
-                    n_store = min(len(matched_indices), event_matched_tau_indices.shape[1])
-                    event_matched_tau_indices[event_idx, :n_store] = matched_indices[:n_store]
-                
-                # Debug output for first few events (optional, can be removed for production)
-                # if event_idx < 5:  # Only show first 5 events to avoid spam
-                #     logger.info(f"Event {event_idx}: nTaus={n_event_taus}, validTaus={len(valid_pts)}, "
-                #               f"matchedTaus={len(matched_pts)}, indices={matched_indices.tolist()}")
-                #     if len(matched_pts) > 0:
-                #         logger.info(f"  Matched tau pTs: {matched_pts.tolist()}")
-                #         logger.info(f"  DeltaRs: {delta_r[matched_mask].tolist()}")
-                
-                if len(matched_pts) == 0:
-                    stats["events_no_matched_taus"] += 1
-                elif len(matched_pts) == 1:
-                    stats["events_insufficient_matched_taus"] += 1
-                    # Only 1 matched tau, need >=2
-                else:
-                    # Take top 2 highest pT matched taus
-                    sorted_idx = np.argsort(matched_pts)[::-1]  # Sort descending
-                    top2_pts = matched_pts[sorted_idx[:2]]
-                    top2_indices = matched_indices[sorted_idx[:2]]
-                    event_matched_tau_pt_sum[event_idx] = top2_pts[0] + top2_pts[1]
-                    stats["events_successful"] += 1
-                    
-                    # Successful matches: Top2 taus selected and pT sum calculated
-        else:
-            stats["events_no_taus"] = len(sample.events)
-        
-        # Summary statistics
-        total_events = len(sample.events)
-        # logger.info(f"Event-matched tau pT sum calculation summary:")
-        # logger.info(f"  Total events: {total_events}")
-        # logger.info(f"  Events with no BoostedTaus: {stats['events_no_taus']} ({100*stats['events_no_taus']/total_events:.1f}%)")
-        # logger.info(f"  Events with insufficient valid taus: {stats['events_insufficient_valid_taus']} ({100*stats['events_insufficient_valid_taus']/total_events:.1f}%)")
-        # logger.info(f"  Events with no matched taus (deltaR>=0.8): {stats['events_no_matched_taus']} ({100*stats['events_no_matched_taus']/total_events:.1f}%)")
-        # logger.info(f"  Events with <2 matched taus: {stats['events_insufficient_matched_taus']} ({100*stats['events_insufficient_matched_taus']/total_events:.1f}%)")
-        # logger.info(f"  Events with successful calculation: {stats['events_successful']} ({100*stats['events_successful']/total_events:.1f}%)")
-        
-        # Additional statistics about matched taus
-        nonzero_count = np.count_nonzero(event_matched_tau_pt_sum)
-        # if nonzero_count > 0:
-        #     logger.info(f"  Non-zero results: {nonzero_count} events, mean pT sum: {np.mean(event_matched_tau_pt_sum[event_matched_tau_pt_sum > 0]):.1f} GeV")
-        
-        total_matched_taus = np.sum(event_matched_tau_count)
-        # logger.info(f"  Total matched taus across all events: {total_matched_taus}")
-        # if total_matched_taus > 0:
-        #     logger.info(f"  Average matched taus per event (non-zero): {total_matched_taus / np.count_nonzero(event_matched_tau_count):.1f}")
-        
-        return event_matched_tau_pt_sum, event_matched_tau_count, event_matched_tau_indices
-        
-    except Exception as e:
-        # logger.error(f"Error calculating event_matched_tau_pt_sum: {e}")
-        return event_matched_tau_pt_sum, event_matched_tau_count, event_matched_tau_indices  # Return zeros arrays
-
-
 base_filters_default = [
     [
         ("('ak8FatJetPt', '0')", ">=", 250),
@@ -271,6 +101,14 @@ control_plot_vars = (
         ShapeVar(
             var=f"ak8FatJetParTmassVisApplied{i}",
             label=rf"ParT Visable $m_{{reg}}^{{j{i + 1}}}$",
+            bins=[20, 50, 300],
+        )
+        for i in range(3)
+    ]
+    + [
+        ShapeVar(
+            var=f"ak8FatJetCAmass{i}",
+            label=rf"CA $m_{{reg}}^{{j{i + 1}}}$",
             bins=[20, 50, 300],
         )
         for i in range(3)
@@ -558,7 +396,8 @@ def get_columns(
             ("ak8FatJetParTmassResApplied", num_fatjets),
             ("ak8FatJetParTmassVisApplied", num_fatjets),
             ("ak8FatJetMsd", num_fatjets),
-            ("ak8FatJetCAmatched_2BoostedTaus", num_fatjets)
+            ("ak8FatJetCAmatched_2BoostedTaus", num_fatjets),
+            ("ak8FatJetCAmass", num_fatjets)
         ]
 
     if ParT_taggers:
@@ -1135,29 +974,6 @@ def bbtautau_assignment(
 
         sample.bb_mask = bbtt_masks["bb"]
         sample.tt_mask = bbtt_masks["tt"]
-        
-        # Calculate event_matched_tau_pt_sum and related variables for the selected tautau FatJet
-        # This replaces the object-level calculation to ensure consistency with tautau selection
-        # try:
-        #     event_matched_tau_pt_sum, event_matched_tau_count, event_matched_tau_indices = calculate_event_matched_tau_pt_sum(sample, tautau_pick)
-            
-        #     # Store all tau matching results
-        #     sample.events[("event_matched_tau_pt_sum", "0")] = event_matched_tau_pt_sum
-        #     sample.events[("event_matched_tau_count", "0")] = event_matched_tau_count
-            
-        #     # Store matched tau indices (as multiple columns for each possible matched tau)
-        #     max_matched_taus = event_matched_tau_indices.shape[1]
-        #     for i in range(max_matched_taus):
-        #         sample.events[(f"event_matched_tau_idx_{i}", "0")] = event_matched_tau_indices[:, i]
-                
-        # except Exception as e:
-        #     logger.warning(f"Could not calculate tau matching variables for sample {_skey}: {e}")
-        #     # Fallback: set all to zeros/defaults
-        #     sample.events[("event_matched_tau_pt_sum", "0")] = np.zeros(len(sample.events), dtype=float)
-        #     sample.events[("event_matched_tau_count", "0")] = np.zeros(len(sample.events), dtype=int)
-        #     # Set matched tau indices to -1 (indicating no match)
-        #     for i in range(10):  # Max 10 possible matched taus
-        #         sample.events[(f"event_matched_tau_idx_{i}", "0")] = np.full(len(sample.events), -1, dtype=int)
 
 
 def _add_bdt_scores(
