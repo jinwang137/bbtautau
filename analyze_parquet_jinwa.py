@@ -93,10 +93,243 @@ def plot_distributions(df, output_dir="plots"):
     
     # FatJet mass
     
+
+    if 'ak8FatJetCAnsubjets_perfatjets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAnsubjets_perfatjets'].shape) > 1:
+            data = df['ak8FatJetCAnsubjets_perfatjets'].iloc[:, 0]
+        else:
+            data = df['ak8FatJetCAnsubjets_perfatjets']
+        
+        plt.hist(data, bins=50, alpha=0.7, weights=weights)
+        plt.xlabel('ak8FatJetCAnsubjets_perfatjets(1st)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAnsubjets_perfatjets(1st)')
+
+    if 'ak8FatJetCAnsubjets_perfatjets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAnsubjets_perfatjets'].shape) > 1:
+            data = df['ak8FatJetCAnsubjets_perfatjets'].iloc[:, 1]
+        else:
+            data = df['ak8FatJetCAnsubjets_perfatjets']
+        
+        filtered_data = data[data > -10]
+        valid_weights = weights[data > -10]
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-2, 4)
+        plt.xlabel('ak8FatJetCAnsubjets_perfatjets(2nd)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAnsubjets_perfatjets(2nd)')
+    
+    if 'ak8FatJetCAnsubjets_perfatjets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAnsubjets_perfatjets'].shape) > 1:
+            data = df['ak8FatJetCAnsubjets_perfatjets'].iloc[:, 2]
+        else:
+            data = df['ak8FatJetCAnsubjets_perfatjets']
+        
+        filtered_data = data[data > -10]
+        valid_weights = weights[data > -10]
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-2, 4)
+        plt.xlabel('ak8FatJetCAnsubjets_perfatjets(3rd)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAnsubjets_perfatjets(3rd)')
+
+    if 'ak8FatJetCAmass_subjets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAmass_subjets'].shape) > 1:
+            data = df['ak8FatJetCAmass_subjets'].iloc[:, 0]
+        else:
+            data = df['ak8FatJetCAmass_subjets']
+        
+        filtered_data = data[(data > -100) & (data < 1000)]
+        valid_weights = weights[(data > -100) & (data < 1000)]
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlabel('ak8FatJetCAmass_subjets (1st FatJet)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAmass_subjets (1st FatJet)')
+    
     # FatJet matching
+    if 'ak8FatJetCAmass_subjets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAmass_subjets'].shape) > 1:
+            data = df['ak8FatJetCAmass_subjets'].iloc[:, 1]
+        else:
+            data = df['ak8FatJetCAmass_subjets']
+        
+        filtered_data = data[(data > -100) & (data < 1000)]
+        valid_weights = weights[(data > -100) & (data < 1000)]
+
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-100, 500)
+        plt.xlabel('ak8FatJetCAmass_subjets (2nd FatJet)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAmass_subjets (2nd FatJet)')
+
+    if 'ak8FatJetCAmass_subjets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAmass_subjets'].shape) > 1:
+            data = df['ak8FatJetCAmass_subjets'].iloc[:, 2]
+        else:
+            data = df['ak8FatJetCAmass_subjets']
+        
+        filtered_data = data[(data > -100) & (data < 1000)]
+        valid_weights = weights[(data > -100) & (data < 1000)]
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-100, 500)
+        plt.xlabel('ak8FatJetCAmass_subjets (3rd FatJet)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAmass_subjets (3rd FatJet)')
+
+    if 'ak8FatJetCAntaus_perfatjets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAntaus_perfatjets'].shape) > 1:
+            data = df['ak8FatJetCAntaus_perfatjets'].iloc[:, 0]
+        else:
+            data = df['ak8FatJetCAntaus_perfatjets']
+        
+        plt.hist(data, bins=50, alpha=0.7, weights=weights)
+        plt.xlabel('ak8FatJetCAntaus_perfatjets(1st)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAntaus_perfatjets(1st)')
+
+    if 'ak8FatJetCAntaus_perfatjets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAntaus_perfatjets'].shape) > 1:
+            data = df['ak8FatJetCAntaus_perfatjets'].iloc[:, 1]
+        else:
+            data = df['ak8FatJetCAntaus_perfatjets']
+        
+        filtered_data = data[data > -10]
+        valid_weights = weights[data > -10]
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-2, 4)
+        plt.xlabel('ak8FatJetCAntaus_perfatjets(2nd)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAntaus_perfatjets(2nd)')
+    
+    if 'ak8FatJetCAntaus_perfatjets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAntaus_perfatjets'].shape) > 1:
+            data = df['ak8FatJetCAntaus_perfatjets'].iloc[:, 2]
+        else:
+            data = df['ak8FatJetCAntaus_perfatjets']
+        
+        filtered_data = data[data > -10]
+        valid_weights = weights[data > -10]
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-2, 4)
+        plt.xlabel('ak8FatJetCAntaus_perfatjets(3rd)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAntaus_perfatjets(3rd)')
+
+    if 'ak8FatJetCAmass' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAmass'].shape) > 1:
+            data = df['ak8FatJetCAmass'].iloc[:, 0]
+        else:
+            data = df['ak8FatJetCAmass']
+        
+        filtered_data = data[(data > -100) & (data < 1000)]
+        valid_weights = weights[(data > -100) & (data < 1000)]
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlabel('ak8FatJetCAmass (1st FatJet)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAmass (1st FatJet)')
+    
+    # FatJet matching
+    if 'ak8FatJetCAmass' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAmass'].shape) > 1:
+            data = df['ak8FatJetCAmass'].iloc[:, 1]
+        else:
+            data = df['ak8FatJetCAmass']
+        
+        filtered_data = data[(data > -100) & (data < 1000)]
+        valid_weights = weights[(data > -100) & (data < 1000)]
+
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-100, 500)
+        plt.xlabel('ak8FatJetCAmass (2nd FatJet)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAmass (2nd FatJet)')
+
+    if 'ak8FatJetCAmass' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAmass'].shape) > 1:
+            data = df['ak8FatJetCAmass'].iloc[:, 2]
+        else:
+            data = df['ak8FatJetCAmass']
+        
+        filtered_data = data[data > -100]
+        valid_weights = weights[data > -100]
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-100, 500)
+        plt.xlabel('ak8FatJetCAmass (3rd FatJet)')
+        plt.ylabel('Events')
+        plt.title('ak8FatJetCAmass (3rd FatJet)')
+
+    # Number of jets
+    if 'nFatJets' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        plt.hist(df['nFatJets'], bins=10, alpha=0.7, weights=weights)
+        plt.xlabel('Number of FatJets')
+        plt.ylabel('Events')
+        plt.title('N(FatJets)')
+    
+    # Weight distribution
+    # if 'CA_matched_tau_pt_sum' in df.columns:
+    #     plot_count += 1
+    #     plt.subplot(3, 3, plot_count)
+    #     plt.hist(df['CA_matched_tau_pt_sum'], bins=10, alpha=0.7, weights=weights)
+    #     plt.xlabel('CA_matched_tau_pt_sum')
+    #     plt.ylabel('Events')
+    #     plt.title('CA_matched_tau_pt_sum')
+
+    if 'CA_tau_idx_0' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        plt.hist(df['CA_tau_idx_0'], bins=10, alpha=0.7, weights=weights)
+        plt.xlabel('Matched_boosted_HPS_tau_idx_0')
+        plt.ylabel('Events')
+        plt.title('Matched_boosted_HPS_tau_idx_0')
+
+    if 'CA_best_fatjet_idx' in df.columns:
+        plot_count += 1
+        plt.subplot(6, 3, plot_count)
+        plt.hist(df['CA_best_fatjet_idx'], bins=10, alpha=0.7, weights=weights)
+        plt.xlabel('CA_tauhtauh_fatjet_idx')
+        plt.ylabel('Events')
+        plt.title('CA_tauhtauh_fatjet_idx')
+
+    #FatJet matching
     if 'ak8FatJetCAmatched_2BoostedTaus' in df.columns:
         plot_count += 1
-        plt.subplot(2, 3, plot_count)
+        plt.subplot(6, 3, plot_count)
         if len(df['ak8FatJetCAmatched_2BoostedTaus'].shape) > 1:
             data = df['ak8FatJetCAmatched_2BoostedTaus'].iloc[:, 0]
         else:
@@ -110,54 +343,41 @@ def plot_distributions(df, output_dir="plots"):
     # FatJet matching
     if 'ak8FatJetCAmatched_2BoostedTaus' in df.columns:
         plot_count += 1
-        plt.subplot(2, 3, plot_count)
+        plt.subplot(6, 3, plot_count)
         if len(df['ak8FatJetCAmatched_2BoostedTaus'].shape) > 1:
             data = df['ak8FatJetCAmatched_2BoostedTaus'].iloc[:, 1]
         else:
             data = df['ak8FatJetCAmatched_2BoostedTaus']
+
+        filtered_data = data[data > -10]
+        valid_weights = weights[data > -10]
         
-        plt.hist(data, bins=50, alpha=0.7, weights=weights)
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-2, 4)
         plt.xlabel('ak8FatJetCAmatched_2Boosted_HPS_Taus (2nd FatJet)')
         plt.ylabel('Events')
         plt.title('ak8FatJetCAmatched_2Boosted_HPS_Taus (2nd FatJet)')
 
-    # Number of jets
-    if 'nFatJets' in df.columns:
+    if 'ak8FatJetCAmatched_2BoostedTaus' in df.columns:
         plot_count += 1
-        plt.subplot(2, 3, plot_count)
-        plt.hist(df['nFatJets'], bins=10, alpha=0.7, weights=weights)
-        plt.xlabel('Number of FatJets')
+        plt.subplot(6, 3, plot_count)
+        if len(df['ak8FatJetCAmatched_2BoostedTaus'].shape) > 1:
+            data = df['ak8FatJetCAmatched_2BoostedTaus'].iloc[:, 2]
+        else:
+            data = df['ak8FatJetCAmatched_2BoostedTaus']
+        
+        filtered_data = data[data > -10]
+        valid_weights = weights[data > -10]
+        
+        plt.hist(filtered_data, bins=50, alpha=0.7, weights=valid_weights)
+        plt.xlim(-2, 4)
+        plt.xlabel('ak8FatJetCAmatched_2Boosted_HPS_Taus (3rd FatJet)')
         plt.ylabel('Events')
-        plt.title('N(FatJets)')
-    
-    # Weight distribution
-    if 'CA_matched_tau_pt_sum' in df.columns:
-        plot_count += 1
-        plt.subplot(2, 3, plot_count)
-        plt.hist(df['CA_matched_tau_pt_sum'], bins=10, alpha=0.7, weights=weights)
-        plt.xlabel('CA_matched_tau_pt_sum')
-        plt.ylabel('Events')
-        plt.title('CA_matched_tau_pt_sum')
-
-    if 'CA_tau_idx_0' in df.columns:
-        plot_count += 1
-        plt.subplot(2, 3, plot_count)
-        plt.hist(df['CA_tau_idx_0'], bins=10, alpha=0.7, weights=weights)
-        plt.xlabel('Matched_boosted_HPS_tau_idx_0')
-        plt.ylabel('Events')
-        plt.title('Matched_boosted_HPS_tau_idx_0')
-
-    if 'CA_best_fatjet_idx' in df.columns:
-        plot_count += 1
-        plt.subplot(2, 3, plot_count)
-        plt.hist(df['CA_best_fatjet_idx'], bins=10, alpha=0.7, weights=weights)
-        plt.xlabel('CA_tauhtauh_fatjet_idx')
-        plt.ylabel('Events')
-        plt.title('CA_tauhtauh_fatjet_idx')
+        plt.title('ak8FatJetCAmatched_2Boosted_HPS_Taus (3rd FatJet)')
     
     plt.tight_layout()
-    plt.savefig(f'{output_dir}/quick_check_condor.png', dpi=150, bbox_inches='tight')
-    print(f"Plot saved to {output_dir}/quick_check_condor.png")
+    plt.savefig(f'{output_dir}/quick_check_wj5.png', dpi=150, bbox_inches='tight')
+    print(f"Plot saved to {output_dir}/quick_check_wj5.png")
     plt.show()
 
 def analyze_selections(df):
