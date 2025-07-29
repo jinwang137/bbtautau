@@ -525,9 +525,8 @@ class ROCAnalyzer:
         )
 
     def compute_confusion_matrix(
-        self, discriminant_name, threshold=0.5, plot_dir=None, normalize=True
+        self, discriminant_name, sig_vs_bkg=True, threshold=0.5, plot_dir=None, normalize=True
     ):
-
         disc = self.discriminants[discriminant_name]
         disc_scores = disc.disc_scores
         extended_labels = disc.extended_labels
@@ -543,10 +542,13 @@ class ROCAnalyzer:
         label_to_col = {name: i for i, name in enumerate(col_names)}
 
         # Rows: 0 = predicted background, 1 = predicted signal
-        n_rows = 2
+        n_rows = 2 if sig_vs_bkg else len(col_names)
 
-        # Predicted class: 1 (signal) if disc_score >= threshold else 0 (background)
-        y_pred = (disc_scores >= threshold).astype(int)
+        # Predicted class: 1 (signal) if disc_score >= threshold else 0 (background); otherwise just argmax of output
+        if sig_vs_bkg:
+            y_pred = (disc_scores >= threshold).astype(int)
+        else:
+            y_pred = np.argmax(disc_scores, axis=1)
 
         # True class: index in col_names, determined from extended_labels
         y_true = np.array([label_to_col.get(lbl, n_cols - 1) for lbl in extended_labels])
@@ -611,3 +613,129 @@ class ROCAnalyzer:
                 plot_dir / "confusion_matrix" / f"2byN_weighted{suffix}.pdf", bbox_inches="tight"
             )
         plt.close(fig)
+
+
+###############################################################################
+# Stand-alone N x N confusion-matrix utility for BDT outputs
+###############################################################################
+def multiclass_confusion_matrix(
+    preds_dict: dict[str, LoadedSample],
+    classes: list[str] | None = None,
+    *,
+    normalize: bool = True,
+    plot_dir: Path | str | None = None,
+) -> np.ndarray:
+    """
+    Build (and optionally plot) an NxN confusion matrix from the prediction
+    files produced in Trainer.compute_rocs().
+
+    Parameters
+    ----------
+    preds_dict : dict[str, LoadedSample]
+        Mapping TRUE-class → LoadedSample whose ``events`` DataFrame contains
+        one column per predicted class with the corresponding score/probability
+        and a ``finalWeight`` column.
+    classes : list[str] | None
+        Desired class order.  Defaults to the keys of ``preds_dict``.
+    normalize : bool
+        If True (default) each column is scaled to sum to 1 so entries are
+        class-wise efficiencies.  If False the raw weighted event counts are
+        returned.
+    plot_dir : Path | str | None
+        Directory where ``confusion_matrix/<N>by<N>….{png,pdf}`` will be saved.
+        Nothing is written if None.
+
+    Returns
+    -------
+    np.ndarray
+        (predicted class x true class) confusion matrix (normalized or raw).
+    """
+    if classes is None:
+        classes = list(preds_dict.keys())
+
+    n_cls = len(classes)
+    label_to_col = {c: i for i, c in enumerate(classes)}
+    cm = np.zeros((n_cls, n_cls), dtype=float)  # rows = predicted, cols = true
+
+    # ------------------------------------------------------------------ fill
+    for true_cls, ls in preds_dict.items():
+        if true_cls not in label_to_col:
+            continue
+        true_col = label_to_col[true_cls]
+
+        preds = ls.events
+        if preds is None or preds.empty:
+            continue
+
+        missing = [c for c in classes if c not in preds]
+        if missing:
+            raise ValueError(
+                f"Prediction dataframe for true class '{true_cls}' " f"is missing columns {missing}"
+            )
+
+        scores = preds[classes].to_numpy()
+        y_pred = np.argmax(scores, axis=1)
+        weights = preds.get("finalWeight", 1.0)
+        if not isinstance(weights, np.ndarray):
+            weights = weights.to_numpy()
+
+        for pred_row in range(n_cls):
+            mask = y_pred == pred_row
+            if np.any(mask):
+                cm[pred_row, true_col] += weights[mask].sum()
+
+    # ---------------------------------------------------------------- normalise
+    cm_norm = cm
+    if normalize:
+        col_sums = cm.sum(axis=0, keepdims=True)
+        cm_norm = np.divide(cm, col_sums, where=col_sums != 0)
+
+    # ---------------------------------------------------------------- plotting
+    if plot_dir is not None:
+        plot_dir = Path(plot_dir)
+        (plot_dir / "confusion_matrix").mkdir(parents=True, exist_ok=True)
+        suffix = "_normalized" if normalize else ""
+        fname = f"{n_cls}by{n_cls}_weighted{suffix}"
+
+        fig, ax = plt.subplots()
+        im = ax.imshow(
+            cm_norm,
+            cmap="Blues",
+            vmin=0,
+            vmax=1 if normalize else None,
+        )
+        fig.colorbar(
+            im,
+            ax=ax,
+            label="Fraction of true class" if normalize else "Sum of event weights",
+        )
+
+        ax.set_xticks(np.arange(n_cls))
+        ax.set_xticklabels(classes, rotation=45, ha="right")
+        ax.set_yticks(np.arange(n_cls))
+        ax.set_yticklabels(classes)
+        ax.set_xlabel("True class")
+        ax.set_ylabel("Predicted class")
+        ax.set_title("Normalized Confusion Matrix" if normalize else "Confusion Matrix")
+
+        for i in range(n_cls):
+            for j in range(n_cls):
+                val = cm_norm[i, j]
+                text = f"{val:.2f}" if normalize else f"{val:.0f}"
+                ax.text(
+                    j,
+                    i,
+                    text,
+                    ha="center",
+                    va="center",
+                    color="white" if val > (0.5 if normalize else 0.0) else "black",
+                    fontsize=8,
+                    fontweight="bold",
+                )
+
+        fig.tight_layout()
+        fig.savefig(plot_dir / "confusion_matrix" / f"{fname}.png", bbox_inches="tight")
+        fig.savefig(plot_dir / "confusion_matrix" / f"{fname}.pdf", bbox_inches="tight")
+        plt.close(fig)
+
+    return cm_norm if normalize else cm

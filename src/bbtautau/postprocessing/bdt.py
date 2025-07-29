@@ -15,21 +15,21 @@ import xgboost as xgb
 from bdt_config import bdt_config
 from boostedhh import hh_vars, plotting
 from postprocessing import (
+    base_filter,
+    bb_filters,
     bbtautau_assignment,
     delete_columns,
     derive_variables,
     get_columns,
     leptons_assignment,
     load_samples,
-    trigger_filter,
 )
 from Samples import CHANNELS, SAMPLES
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from tabulate import tabulate
 
-from bbtautau.HLTs import HLTs
-from bbtautau.postprocessing.rocUtils import ROCAnalyzer
+from bbtautau.postprocessing.rocUtils import ROCAnalyzer, multiclass_confusion_matrix
 from bbtautau.postprocessing.utils import LoadedSample
 from bbtautau.userConfig import CLASSIFIER_DIR, DATA_PATHS, MODEL_DIR
 
@@ -91,9 +91,6 @@ class Trainer:
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
     def load_data(self, force_reload=False):
-        """
-        Note: Load_data_old did not use the trigger filters
-        """
         # Check if data buffer file exists
         if self.model_dir / "dtrain.buffer" in self.model_dir.glob("*.buffer") and not force_reload:
             print("Loading data from buffer file")
@@ -108,14 +105,14 @@ class Trainer:
         else:
             for year in self.years:
 
-                # filters_dict = base_filter()
+                filters_dict = base_filter(test_mode=False)
+                filters_dict = bb_filters(filters_dict, num_fatjets=3, bb_cut=0.3)
 
-                filters_dict = trigger_filter(
-                    HLTs.hlts_list_by_dtype(year),
-                    year,
-                    fast_mode=False,
-                    # PNetXbb_cut=0.8,  # TODO manage this better
-                )  # = {"data": [(...)], "signal": [(...)], "bg": [(...)]}
+                # filters_dict = trigger_filter(
+                #     HLTs.hlts_list_by_dtype(year),
+                #     year,
+                #     test_mode=False,
+                # )  # = {"data": [(...)], "signal": [(...)], "bg": [(...)]}
 
                 columns = get_columns(year)
 
@@ -511,6 +508,8 @@ class Trainer:
             f"Time taken to convert predictions to LoadedSamples: {time_end - time_start} seconds"
         )
 
+        multiclass_confusion_matrix(preds_dict, plot_dir=savedir)
+
         rocAnalyzer = ROCAnalyzer(
             years=self.years,
             signals={sig: preds_dict[sig] for sig in signal_names},
@@ -522,10 +521,12 @@ class Trainer:
         # This part configures what background outputs to put in the taggers
 
         bkg_tagger_groups = (
-            [[bkg] for bkg in background_names if "ttbar" not in bkg]
-            + [["ttbarhad", "ttbarll", "ttbarsl"]]
-            + [["qcd", "dyjets"]]
-            + [background_names]
+            [
+                [bkg] for bkg in background_names if "ttbar" not in bkg
+            ]  # individual backgrounds w/o ttbar
+            + [["ttbarhad", "ttbarll", "ttbarsl"]]  # ttbar backgrounds
+            + [["qcd", "dyjets"]]  # qcd and dy backgrounds
+            + [background_names]  # All backgrounds
         )
 
         #########################################################
@@ -541,10 +542,6 @@ class Trainer:
                 )
 
         rocAnalyzer.compute_rocs()
-
-        print(rocAnalyzer.discriminants.keys())
-        print(rocAnalyzer.discriminants["bbtthhvsQCD"].roc.fpr)
-        print(rocAnalyzer.discriminants["bbtthhvsQCD"].roc.tpr)
 
         discs_by_sig = {
             sig: [disc for disc in rocAnalyzer.discriminants.values() if disc.signal_name == sig]

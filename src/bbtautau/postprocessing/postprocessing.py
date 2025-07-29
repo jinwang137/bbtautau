@@ -18,6 +18,7 @@ from pathlib import Path
 
 import hist
 import matplotlib as mpl
+import numba
 import numpy as np
 import pandas as pd
 import xgboost as xgb
@@ -366,49 +367,54 @@ def tt_filters(
     return filters
 
 
-def trigger_filter(
-    triggers: dict[str, list[str]],
-    year: str,
-    base_filters: list[tuple] = None,
-    test_mode: bool = False,
-    PNetXbb_cut: float = None,
-    num_fatjets: int = 3,
-) -> dict[str, dict[str, list[list[tuple]]]]:
-    """
-    creates a list of filters for each trigger in the list of triggers. It is granular to triggers = {"data": { [...] , ...}, "signal": { [...]}, "bg": { [...]}}.
-    """
-    if base_filters is None:
-        base_filters = base_filter(test_mode)
+# def trigger_filter(
+#     triggers: dict[str, list[str]],
+#     year: str,
+#     base_filters: list[tuple] = None,
+#     test_mode: bool = False,
+#     PNetXbb_cut: float = None,
+#     num_fatjets: int = 3,
+# ) -> dict[str, dict[str, list[list[tuple]]]]:
+#     """
+#     creates a list of filters for each trigger in the list of triggers. It is granular to triggers = {"data": { [...] , ...}, "signal": { [...]}, "bg": { [...]}}.
+#     """
 
-    filters_dict = {}
 
-    if year == "2023":
-        skip_names = ["PNet", "Parking", "Quadjet"]
-        skip = []
-        for name in skip_names:
-            skip += HLTs.hlts_by_type(year, name)
+#     # TODO: this function has a bug: skipped triggers are just forgotten and those events are left out.
 
-        # exclude from filtering since they change mid-2023 and have dype as bool instead of int
-        triggers["data"] = [trigger for trigger in triggers["data"] if trigger not in skip]
 
-    if not isinstance(triggers, dict):
-        print(triggers, year, "triggers should be a dictionary")
+# if base_filters is None:
+#     base_filters = base_filter(test_mode)
 
-    for dtype, trigger_list in triggers.items():
-        filters_dict[dtype] = [
-            ifilter + [(f"('{trigger}', '0')", "==", 1)]
-            for trigger in trigger_list
-            for ifilter in base_filters[dtype]
-        ]
+# filters_dict = {}
 
-    if PNetXbb_cut is not None:
-        extras = [
-            (f"('ak8FatJetPNetXbbLegacy', '{i}')", ">=", PNetXbb_cut) for i in range(num_fatjets)
-        ]
-        for dtype, filters in filters_dict.items():
-            filters_dict[dtype] = [branch + [extra] for branch in filters for extra in extras]
+# if year == "2023":
+#     skip_names = ["PNet", "Parking", "Quadjet"]
+#     skip = []
+#     for name in skip_names:
+#         skip += HLTs.hlts_by_type(year, name)
 
-    return filters_dict
+#     # exclude from filtering since they change mid-2023 and have dype as bool instead of int
+#     triggers["data"] = [trigger for trigger in triggers["data"] if trigger not in skip]
+
+# if not isinstance(triggers, dict):
+#     print(triggers, year, "triggers should be a dictionary")
+
+# for dtype, trigger_list in triggers.items():
+#     filters_dict[dtype] = [
+#         ifilter + [(f"('{trigger}', '0')", "==", 1)]
+#         for trigger in trigger_list
+#         for ifilter in base_filters[dtype]
+#     ]
+
+# if PNetXbb_cut is not None:
+#     extras = [
+#         (f"('ak8FatJetPNetXbbLegacy', '{i}')", ">=", PNetXbb_cut) for i in range(num_fatjets)
+#     ]
+#     for dtype, filters in filters_dict.items():
+#         filters_dict[dtype] = [branch + [extra] for branch in filters for extra in extras]
+
+# return filters_dict
 
 
 def get_columns(
@@ -1014,6 +1020,20 @@ def bbtautau_assignment(
         sample.tt_mask = bbtt_masks["tt"]
 
 
+@numba.vectorize(
+    [
+        numba.float32(numba.float32, numba.float32),
+        numba.float64(numba.float64, numba.float64),
+    ]
+)
+def delta_phi(a, b):
+    """Compute difference in angle given two angles a and b
+
+    Returns a value within [-pi, pi)
+    """
+    return (a - b + np.pi) % (2 * np.pi) - np.pi
+
+
 def _get_lepton_mask(sample, lepton_type: str, dR_cut: float) -> np.ndarray:
     """
     Calculates a boolean mask to select the highest-pT lepton of a given type
@@ -1034,7 +1054,7 @@ def _get_lepton_mask(sample, lepton_type: str, dR_cut: float) -> np.ndarray:
     # print(np.sum(lepton_eta != PAD_VAL, axis=0)/len(lepton_eta))
 
     # 1. Calculate dR for all leptons and create an initial mask
-    dR = np.sqrt((lepton_eta - jet_eta) ** 2 + (lepton_phi - jet_phi) ** 2)
+    dR = np.sqrt((lepton_eta - jet_eta) ** 2 + (delta_phi(lepton_phi, jet_phi)) ** 2)
     initial_mask = dR < dR_cut
 
     # 2. Find events that have at least one passing lepton
@@ -1056,6 +1076,7 @@ def _get_lepton_mask(sample, lepton_type: str, dR_cut: float) -> np.ndarray:
     return final_mask
 
 
+# TODO: make control plots
 def leptons_assignment(
     events_dict: dict[str, LoadedSample],
     dR_cut: float = 1.5,
