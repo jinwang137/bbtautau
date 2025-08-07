@@ -233,7 +233,6 @@ class bbtautauSkimmer(SkimmerABC):
 
         #CA variables
         ca_vars = [
-            "matched_2BoostedTaus",
             "mass",
             "globalParT_massVis",
             "dau0_pt",
@@ -419,8 +418,6 @@ class bbtautauSkimmer(SkimmerABC):
         #     isData=isData,
         # )
 
-        fatjets, ca_tau_pt_sum, ca_tau_indices, ca_best_fatjet_idx = objects.get_Matching(fatjets, boostedtaus)
-        print("ak8 Matching Taus", f"{time.time() - start:.2f}")
         fatjets = objects.get_CA_MASS(fatjets, boostedtaus, met, subjets)
         print("CA mass", f"{time.time() - start:.2f}")
 
@@ -556,10 +553,10 @@ class bbtautauSkimmer(SkimmerABC):
         eventVars["nSubJets"] = ak.num(subjets).to_numpy()
 
         #jin for CA
-        eventVars["CA_matched_tau_pt_sum"] = ca_tau_pt_sum.to_numpy()
-        eventVars["CA_tau_idx_0"] = ca_tau_indices[:, 0].to_numpy()
-        eventVars["CA_tau_idx_1"] = ca_tau_indices[:, 1].to_numpy()
-        eventVars["CA_best_fatjet_idx"] = ca_best_fatjet_idx.to_numpy()
+        # eventVars["CA_matched_tau_pt_sum"] = ca_tau_pt_sum.to_numpy()
+        # eventVars["CA_tau_idx_0"] = ca_tau_indices[:, 0].to_numpy()
+        # eventVars["CA_tau_idx_1"] = ca_tau_indices[:, 1].to_numpy()
+        # eventVars["CA_best_fatjet_idx"] = ca_best_fatjet_idx.to_numpy()
 
         if isData:
             pileupVars = {key: np.ones(len(events)) * PAD_VAL for key in self.skim_vars["Pileup"]}
