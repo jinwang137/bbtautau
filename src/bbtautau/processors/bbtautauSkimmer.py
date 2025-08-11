@@ -234,7 +234,12 @@ class bbtautauSkimmer(SkimmerABC):
         #CA variables
         ca_vars = [
             "mass",
+            "msoftdrop",
             "globalParT_massVis",
+            "globalParT_massRes",
+            "globalParT_massVisApplied",
+            "globalParT_massResApplied",
+            "particleNet_mass_legacy",
             "dau0_pt",
             "dau1_pt",
             "dau0_eta",
