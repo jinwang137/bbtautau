@@ -21,7 +21,6 @@ from coffea.nanoevents.methods.nanoaod import (
 
 from bbtautau.HLTs import HLTs
 
-from coffea.nanoevents.methods.vector import delta_r
 
 def trig_match_sel(events, leptons, trig_leptons, year, trigger, filterbit, ptcut, trig_dR=0.2):
     """
@@ -281,6 +280,13 @@ def good_boostedtaus(events, taus: TauArray):  # noqa: ARG001
     return taus[tau_sel]
 
 
+#adopted from https://github.com/scikit-hep/coffea/blob/a315da1fa307f1ec0d21c29e908e5b733603d7c0/src/coffea/nanoevents/methods/vector.py#L106
+def delta_r(eta1, phi1, eta2, phi2):
+    deta = eta1 - eta2
+    dphi = (phi1 - phi2 + np.pi) % (2 * np.pi) - np.pi
+    return np.hypot(deta,dphi)
+
+
 def CA_got(met_pt, met_phi, fatjets_mass, fatjets_masscorr, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt):
     invalid = (
         (met_pt == -999)
@@ -317,7 +323,7 @@ def CA_got(met_pt, met_phi, fatjets_mass, fatjets_masscorr, tau0_eta, tau1_eta, 
     return mass
 
 
-def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: JetArray):
+def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: JetArray, muons: MuonArray, electrons: ElectronArray):
 
     init_fields = {
         "CA_mass_boostedtaus": (-999.0, float),
@@ -327,27 +333,57 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
 
         "CA_mass": (-999.0, float),
         "CA_msoftdrop": (-999.0, float),
-        "CA_globalParT_massVis": (-999.0, float),
-        "CA_globalParT_massRes": (-999.0, float),
         "CA_globalParT_massVisApplied": (-999.0, float),
         "CA_globalParT_massResApplied": (-999.0, float),
         "CA_particleNet_mass_legacy": (-999.0, float),
 
+
+        "CA_isDauTau": (0, int),
 
         "CA_dau0_pt": (-999.0, float), "CA_dau1_pt": (-999.0, float),
         "CA_dau0_eta": (-999.0, float), "CA_dau1_eta": (-999.0, float),
         "CA_dau0_phi": (-999.0, float), "CA_dau1_phi": (-999.0, float),
         "CA_dau0_mass": (-999.0, float), "CA_dau1_mass": (-999.0, float),
 
-        "CA_subjet0_pt": (-999.0, float), "CA_subjet1_pt": (-999.0, float),
-        "CA_subjet0_eta": (-999.0, float), "CA_subjet1_eta": (-999.0, float),
-        "CA_subjet0_phi": (-999.0, float), "CA_subjet1_phi": (-999.0, float),
-        "CA_subjet0_mass": (-999.0, float), "CA_subjet1_mass": (-999.0, float),
+        ##mt-channel
+        "CA_mass_boostedtaus_mt": (-999.0, float),
+        "CA_ntaus_perfatjets_mt": (-1, int),
+        "CA_mass_subjets_mt": (-999.0, float),
+        "CA_nsubjets_perfatjets_mt": (-1, int),
 
-        "CA_boostedtau0_pt": (-999.0, float), "CA_boostedtau1_pt": (-999.0, float),
-        "CA_boostedtau0_eta": (-999.0, float), "CA_boostedtau1_eta": (-999.0, float),
-        "CA_boostedtau0_phi": (-999.0, float), "CA_boostedtau1_phi": (-999.0, float),
-        "CA_boostedtau0_mass": (-999.0, float), "CA_boostedtau1_mass": (-999.0, float),
+        "CA_mass_mt": (-999.0, float),
+        "CA_msoftdrop_mt": (-999.0, float),
+        "CA_globalParT_massVisApplied_mt": (-999.0, float),
+        "CA_globalParT_massResApplied_mt": (-999.0, float),
+        "CA_particleNet_mass_legacy_mt": (-999.0, float),
+
+
+        "CA_isDauTau_mt": (0, int),
+
+        "CA_dau0_pt_mt": (-999.0, float), "CA_dau1_pt_mt": (-999.0, float),
+        "CA_dau0_eta_mt": (-999.0, float), "CA_dau1_eta_mt": (-999.0, float),
+        "CA_dau0_phi_mt": (-999.0, float), "CA_dau1_phi_mt": (-999.0, float),
+        "CA_dau0_mass_mt": (-999.0, float), "CA_dau1_mass_mt": (-999.0, float),
+
+        ##et-channel
+        "CA_mass_boostedtaus_et": (-999.0, float),
+        "CA_ntaus_perfatjets_et": (-1, int),
+        "CA_mass_subjets_et": (-999.0, float),
+        "CA_nsubjets_perfatjets_et": (-1, int),
+
+        "CA_mass_et": (-999.0, float),
+        "CA_msoftdrop_et": (-999.0, float),
+        "CA_globalParT_massVisApplied_et": (-999.0, float),
+        "CA_globalParT_massResApplied_et": (-999.0, float),
+        "CA_particleNet_mass_legacy_et": (-999.0, float),
+
+
+        "CA_isDauTau_et": (0, int),
+
+        "CA_dau0_pt_et": (-999.0, float), "CA_dau1_pt_et": (-999.0, float),
+        "CA_dau0_eta_et": (-999.0, float), "CA_dau1_eta_et": (-999.0, float),
+        "CA_dau0_phi_et": (-999.0, float), "CA_dau1_phi_et": (-999.0, float),
+        "CA_dau0_mass_et": (-999.0, float), "CA_dau1_mass_et": (-999.0, float),
     }
 
         
@@ -368,6 +404,11 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
 
     no2tau = ak.full_like(fatjets.pt, False, dtype=bool) 
     no2subjet = ak.full_like(fatjets.pt, False, dtype=bool) 
+    no1tau = ak.full_like(fatjets.pt, False, dtype=bool) 
+    no1subjet = ak.full_like(fatjets.pt, False, dtype=bool) 
+    no1muon = ak.full_like(fatjets.pt, False, dtype=bool) 
+    no1electron = ak.full_like(fatjets.pt, False, dtype=bool)
+
 
     met_pt = met.pt
     met_phi = met.phi
@@ -388,6 +429,54 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
 
         fake_corr = ak.full_like(fatjets_masscorr, 1.0, dtype=float)
 
+        #for muon
+        fatjet_muon_pairs = ak.cartesian([fatjets, muons], nested=True)
+        fatjets_in_pairs = fatjet_muon_pairs["0"]
+        muons_in_pairs = fatjet_muon_pairs["1"]
+
+        dR_muons = delta_r(fatjets_in_pairs.eta, fatjets_in_pairs.phi, muons_in_pairs.eta, muons_in_pairs.phi)
+
+        close_matches_muons = dR_muons < 0.8
+        matched_muons_per_fatjet = muons_in_pairs[close_matches_muons]
+
+        n_matched_muons = ak.num(matched_muons_per_fatjet, axis=-1)
+        no1muon = n_matched_muons < 1
+
+        sorted_indices = ak.argsort(matched_muons_per_fatjet.pt, axis=-1, ascending=False)
+        sorted_muons = matched_muons_per_fatjet[sorted_indices]
+        top2_muons = ak.pad_none(sorted_muons, 2, axis=-1)[..., :2]
+
+
+        muon0_eta = ak.fill_none(top2_muons.eta[..., 0], -999)
+        muon0_phi = ak.fill_none(top2_muons.phi[..., 0], -999)
+        muon0_mass = ak.fill_none(top2_muons.mass[..., 0], -999)
+        muon0_pt = ak.fill_none(top2_muons.pt[..., 0], -999)
+        ##
+
+        #for electron
+        fatjet_electron_pairs = ak.cartesian([fatjets, electrons], nested=True)
+        fatjets_in_pairs = fatjet_electron_pairs["0"]
+        electrons_in_pairs = fatjet_electron_pairs["1"]
+
+        dR_electrons = delta_r(fatjets_in_pairs.eta, fatjets_in_pairs.phi, electrons_in_pairs.eta, electrons_in_pairs.phi)
+
+        close_matches_electrons = dR_electrons < 0.8
+        matched_electrons_per_fatjet = electrons_in_pairs[close_matches_electrons]
+
+        n_matched_electrons = ak.num(matched_electrons_per_fatjet, axis=-1)
+        no1electron = n_matched_electrons < 1
+
+        sorted_indices = ak.argsort(matched_electrons_per_fatjet.pt, axis=-1, ascending=False)
+        sorted_electrons = matched_electrons_per_fatjet[sorted_indices]
+        top2_electrons = ak.pad_none(sorted_electrons, 2, axis=-1)[..., :2]
+
+
+        electron0_eta = ak.fill_none(top2_electrons.eta[..., 0], -999)
+        electron0_phi = ak.fill_none(top2_electrons.phi[..., 0], -999)
+        electron0_mass = ak.fill_none(top2_electrons.mass[..., 0], -999)
+        electron0_pt = ak.fill_none(top2_electrons.pt[..., 0], -999)
+        ##
+
         ###to change to subjet
         fatjet_subjet_pairs = ak.cartesian([fatjets, subjets], nested=True)
         fatjets_in_pairs = fatjet_subjet_pairs["0"]
@@ -401,6 +490,7 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
 
         n_matched_subjets = ak.num(matched_subjets_per_fatjet, axis=-1)
         no2subjet = n_matched_subjets < 2
+        no1subjet = n_matched_subjets < 1
 
         sorted_indices = ak.argsort(matched_subjets_per_fatjet.pt, axis=-1, ascending=False)
         sorted_subjets = matched_subjets_per_fatjet[sorted_indices]
@@ -423,11 +513,24 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
         msoftdrop_subjet = CA_got(met_pt, met_phi, fatjets_msoftdrop, fatjets_masscorr, subjet0_eta, subjet1_eta, subjet0_phi, subjet1_phi, subjet0_pt, subjet1_pt)
 
         # ###
-        globalParT_massVis_subjet = CA_got(met_pt, met_phi, fatjets_globalParT_massVis, fake_corr, subjet0_eta, subjet1_eta, subjet0_phi, subjet1_phi, subjet0_pt, subjet1_pt)
-        globalParT_massRes_subjet = CA_got(met_pt, met_phi, fatjets_globalParT_massRes, fake_corr, subjet0_eta, subjet1_eta, subjet0_phi, subjet1_phi, subjet0_pt, subjet1_pt)
         globalParT_massVisApplied_subjet = CA_got(met_pt, met_phi, fatjets_globalParT_massVisApplied, fake_corr, subjet0_eta, subjet1_eta, subjet0_phi, subjet1_phi, subjet0_pt, subjet1_pt)
         globalParT_massResApplied_subjet = CA_got(met_pt, met_phi, fatjets_globalParT_massResApplied, fake_corr, subjet0_eta, subjet1_eta, subjet0_phi, subjet1_phi, subjet0_pt, subjet1_pt)
         particleNet_mass_legacy_subjet = CA_got(met_pt, met_phi, fatjets_particleNet_mass_legacy, fake_corr, subjet0_eta, subjet1_eta, subjet0_phi, subjet1_phi, subjet0_pt, subjet1_pt)
+
+
+        ##mu/elec. needchanging
+        mass_subjet_mt = CA_got(met_pt, met_phi, fatjets_mass, fatjets_masscorr, subjet0_eta, muon0_eta, subjet0_phi, muon0_phi, subjet0_pt, muon0_pt)
+        msoftdrop_subjet_mt = CA_got(met_pt, met_phi, fatjets_msoftdrop, fatjets_masscorr, subjet0_eta, muon0_eta, subjet0_phi, muon0_phi, subjet0_pt, muon0_pt)
+        globalParT_massVisApplied_subjet_mt = CA_got(met_pt, met_phi, fatjets_globalParT_massVisApplied, fake_corr, subjet0_eta, muon0_eta, subjet0_phi, muon0_phi, subjet0_pt, muon0_pt)
+        globalParT_massResApplied_subjet_mt = CA_got(met_pt, met_phi, fatjets_globalParT_massResApplied, fake_corr, subjet0_eta, muon0_eta, subjet0_phi, muon0_phi, subjet0_pt, muon0_pt)
+        particleNet_mass_legacy_subjet_mt = CA_got(met_pt, met_phi, fatjets_particleNet_mass_legacy, fake_corr, subjet0_eta, muon0_eta, subjet0_phi, muon0_phi, subjet0_pt, muon0_pt)
+
+        mass_subjet_et = CA_got(met_pt, met_phi, fatjets_mass, fatjets_masscorr, subjet0_eta, electron0_eta, subjet0_phi, electron0_phi, subjet0_pt, electron0_pt)
+        msoftdrop_subjet_et = CA_got(met_pt, met_phi, fatjets_msoftdrop, fatjets_masscorr, subjet0_eta, electron0_eta, subjet0_phi, electron0_phi, subjet0_pt, electron0_pt)
+        globalParT_massVisApplied_subjet_et = CA_got(met_pt, met_phi, fatjets_globalParT_massVisApplied, fake_corr, subjet0_eta, electron0_eta, subjet0_phi, electron0_phi, subjet0_pt, electron0_pt)
+        globalParT_massResApplied_subjet_et = CA_got(met_pt, met_phi, fatjets_globalParT_massResApplied, fake_corr, subjet0_eta, electron0_eta, subjet0_phi, electron0_phi, subjet0_pt, electron0_pt)
+        particleNet_mass_legacy_subjet_et = CA_got(met_pt, met_phi, fatjets_particleNet_mass_legacy, fake_corr, subjet0_eta, electron0_eta, subjet0_phi, electron0_phi, subjet0_pt, electron0_pt)
+
 
 
         fatjet_boostedtau_pairs = ak.cartesian([fatjets, taus], nested=True)
@@ -442,6 +545,7 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
 
         n_matched = ak.num(matched_taus_per_fatjet, axis=-1)
         no2tau = n_matched < 2
+        no1tau = n_matched < 1
 
         sorted_indices = ak.argsort(matched_taus_per_fatjet.pt, axis=-1, ascending=False)
         sorted_taus = matched_taus_per_fatjet[sorted_indices]
@@ -463,21 +567,33 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
         mass_boostedtau = CA_got(met_pt, met_phi, fatjets_mass, fatjets_masscorr, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt)
         msoftdrop_boostedtau = CA_got(met_pt, met_phi, fatjets_msoftdrop, fatjets_masscorr, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt)
 
-        globalParT_massVis_boostedtau = CA_got(met_pt, met_phi, fatjets_globalParT_massVis, fake_corr, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt)
-        globalParT_massRes_boostedtau = CA_got(met_pt, met_phi, fatjets_globalParT_massRes, fake_corr, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt)
         globalParT_massVisApplied_boostedtau = CA_got(met_pt, met_phi, fatjets_globalParT_massVisApplied, fake_corr, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt)
         globalParT_massResApplied_boostedtau = CA_got(met_pt, met_phi, fatjets_globalParT_massResApplied, fake_corr, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt)
         particleNet_mass_legacy_boostedtau = CA_got(met_pt, met_phi, fatjets_particleNet_mass_legacy, fake_corr, tau0_eta, tau1_eta, tau0_phi, tau1_phi, tau0_pt, tau1_pt)
+
+        mass_boostedtau_mt = CA_got(met_pt, met_phi, fatjets_mass, fatjets_masscorr, tau0_eta, muon0_eta, tau0_phi, muon0_phi, tau0_pt, muon0_pt)
+        msoftdrop_boostedtau_mt = CA_got(met_pt, met_phi, fatjets_msoftdrop, fatjets_masscorr, tau0_eta, muon0_eta, tau0_phi, muon0_phi, tau0_pt, muon0_pt)
+        globalParT_massVisApplied_boostedtau_mt = CA_got(met_pt, met_phi, fatjets_globalParT_massVisApplied, fake_corr, tau0_eta, muon0_eta, tau0_phi, muon0_phi, tau0_pt, muon0_pt)
+        globalParT_massResApplied_boostedtau_mt = CA_got(met_pt, met_phi, fatjets_globalParT_massResApplied, fake_corr, tau0_eta, muon0_eta, tau0_phi, muon0_phi, tau0_pt, muon0_pt)
+        particleNet_mass_legacy_boostedtau_mt = CA_got(met_pt, met_phi, fatjets_particleNet_mass_legacy, fake_corr, tau0_eta, muon0_eta, tau0_phi, muon0_phi, tau0_pt, muon0_pt)
+
+        mass_boostedtau_et = CA_got(met_pt, met_phi, fatjets_mass, fatjets_masscorr, tau0_eta, electron0_eta, tau0_phi, electron0_phi, tau0_pt, electron0_pt)
+        msoftdrop_boostedtau_et = CA_got(met_pt, met_phi, fatjets_msoftdrop, fatjets_masscorr, tau0_eta, electron0_eta, tau0_phi, electron0_phi, tau0_pt, electron0_pt)
+        globalParT_massVisApplied_boostedtau_et = CA_got(met_pt, met_phi, fatjets_globalParT_massVisApplied, fake_corr, tau0_eta, electron0_eta, tau0_phi, electron0_phi, tau0_pt, electron0_pt)
+        globalParT_massResApplied_boostedtau_et = CA_got(met_pt, met_phi, fatjets_globalParT_massResApplied, fake_corr, tau0_eta, electron0_eta, tau0_phi, electron0_phi, tau0_pt, electron0_pt)
+        particleNet_mass_legacy_boostedtau_et = CA_got(met_pt, met_phi, fatjets_particleNet_mass_legacy, fake_corr, tau0_eta, electron0_eta, tau0_phi, electron0_phi, tau0_pt, electron0_pt)
+
 
         output_map = {
             "CA_mass": [(~no2subjet, mass_subjet), (~no2tau, mass_boostedtau)],
             "CA_msoftdrop": [(~no2subjet, msoftdrop_subjet), (~no2tau, msoftdrop_boostedtau)],
 
-            "CA_globalParT_massVis": [(~no2subjet, globalParT_massVis_subjet), (~no2tau, globalParT_massVis_boostedtau)],
-            "CA_globalParT_massRes": [(~no2subjet, globalParT_massRes_subjet), (~no2tau, globalParT_massRes_boostedtau)],
             "CA_globalParT_massVisApplied": [(~no2subjet, globalParT_massVisApplied_subjet), (~no2tau, globalParT_massVisApplied_boostedtau)],
             "CA_globalParT_massResApplied": [(~no2subjet, globalParT_massResApplied_subjet), (~no2tau, globalParT_massResApplied_boostedtau)],
             "CA_particleNet_mass_legacy": [(~no2subjet, particleNet_mass_legacy_subjet), (~no2tau, particleNet_mass_legacy_boostedtau)],
+
+            #matched 2 HPS boostedtaus: 1; matched 2 subjets: 2; none matching: 0
+            "CA_isDauTau": [(~no2subjet, 2), (~no2tau, 1)],
 
             "CA_dau0_pt": [(~no2subjet, subjet0_pt), (~no2tau, tau0_pt)],
             "CA_dau1_pt": [(~no2subjet, subjet1_pt), (~no2tau, tau1_pt)],
@@ -493,23 +609,58 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
             "CA_ntaus_perfatjets": [(~no2tau, n_matched)],
             "CA_nsubjets_perfatjets": [(~no2subjet, n_matched_subjets)],
 
-            "CA_subjet0_pt": [(~no2subjet, subjet0_pt)],
-            "CA_subjet1_pt": [(~no2subjet, subjet1_pt)],
-            "CA_subjet0_eta": [(~no2subjet, subjet0_eta)],
-            "CA_subjet1_eta": [(~no2subjet, subjet1_eta)],
-            "CA_subjet0_phi": [(~no2subjet, subjet0_phi)],
-            "CA_subjet1_phi": [(~no2subjet, subjet1_phi)],
-            "CA_subjet0_mass": [(~no2subjet, subjet0_mass)],
-            "CA_subjet1_mass": [(~no2subjet, subjet1_mass)],
+            #mt
 
-            "CA_boostedtau0_pt": [(~no2tau, tau0_pt)],
-            "CA_boostedtau1_pt": [(~no2tau, tau1_pt)],
-            "CA_boostedtau0_eta": [(~no2tau, tau0_eta)],
-            "CA_boostedtau1_eta": [(~no2tau, tau1_eta)],
-            "CA_boostedtau0_phi": [(~no2tau, tau0_phi)],
-            "CA_boostedtau1_phi": [(~no2tau, tau1_phi)],
-            "CA_boostedtau0_mass": [(~no2tau, tau0_mass)],
-            "CA_boostedtau1_mass": [(~no2tau, tau1_mass)],
+            "CA_mass_mt": [((~no1subjet) & (~no1muon), mass_subjet_mt), ((~no1tau) & (~no1muon), mass_boostedtau_mt)],
+            "CA_msoftdrop_mt": [((~no1subjet) & (~no1muon), msoftdrop_subjet_mt), ((~no1tau) & (~no1muon), msoftdrop_boostedtau_mt)],
+
+            "CA_globalParT_massVisApplied_mt": [((~no1subjet) & (~no1muon), globalParT_massVisApplied_subjet_mt), ((~no1tau) & (~no1muon), globalParT_massVisApplied_boostedtau_mt)],
+            "CA_globalParT_massResApplied_mt": [((~no1subjet) & (~no1muon), globalParT_massResApplied_subjet_mt), ((~no1tau) & (~no1muon), globalParT_massResApplied_boostedtau_mt)],
+            "CA_particleNet_mass_legacy_mt": [((~no1subjet) & (~no1muon), particleNet_mass_legacy_subjet_mt), ((~no1tau) & (~no1muon), particleNet_mass_legacy_boostedtau_mt)],
+
+            #matched 2 HPS boostedtaus: 1; matched 2 subjets: 2; none matching: 0
+            "CA_isDauTau_mt": [((~no1subjet) & (~no1muon), 2), ((~no1tau) & (~no1muon), 1)],
+
+            "CA_dau0_pt_mt": [((~no1subjet) & (~no1muon), subjet0_pt), ((~no1tau) & (~no1muon), tau0_pt)],
+            "CA_dau1_pt_mt": [((~no1subjet) & (~no1muon), muon0_pt), ((~no1tau) & (~no1muon), muon0_pt)],
+            "CA_dau0_eta_mt": [((~no1subjet) & (~no1muon), subjet0_eta), ((~no1tau) & (~no1muon), tau0_eta)],
+            "CA_dau1_eta_mt": [((~no1subjet) & (~no1muon), muon0_eta), ((~no1tau) & (~no1muon), muon0_eta)],
+            "CA_dau0_phi_mt": [((~no1subjet) & (~no1muon), subjet0_phi), ((~no1tau) & (~no1muon), tau0_phi)],
+            "CA_dau1_phi_mt": [((~no1subjet) & (~no1muon), muon0_phi), ((~no1tau) & (~no1muon), muon0_phi)],
+            "CA_dau0_mass_mt": [((~no1subjet) & (~no1muon), subjet0_mass), ((~no1tau) & (~no1muon), tau0_mass)],
+            "CA_dau1_mass_mt": [((~no1subjet) & (~no1muon), muon0_mass), ((~no1tau) & (~no1muon), muon0_mass)],
+
+            "CA_mass_subjets_mt": [((~no1subjet) & (~no1muon), mass_subjet_mt)],
+            "CA_mass_boostedtaus_mt": [((~no1tau) & (~no1muon), mass_boostedtau_mt)],
+            "CA_ntaus_perfatjets_mt": [((~no1tau) & (~no1muon), n_matched)],
+            "CA_nsubjets_perfatjets_mt": [((~no1subjet) & (~no1muon), n_matched_subjets)],
+
+            #et
+
+            "CA_mass_et": [((~no1subjet) & (~no1electron), mass_subjet_et), ((~no1tau) & (~no1electron), mass_boostedtau_et)],
+            "CA_msoftdrop_et": [((~no1subjet) & (~no1electron), msoftdrop_subjet_et), ((~no1tau) & (~no1electron), msoftdrop_boostedtau_et)],
+
+            "CA_globalParT_massVisApplied_et": [((~no1subjet) & (~no1electron), globalParT_massVisApplied_subjet_et), ((~no1tau) & (~no1electron), globalParT_massVisApplied_boostedtau_et)],
+            "CA_globalParT_massResApplied_et": [((~no1subjet) & (~no1electron), globalParT_massResApplied_subjet_et), ((~no1tau) & (~no1electron), globalParT_massResApplied_boostedtau_et)],
+            "CA_particleNet_mass_legacy_et": [((~no1subjet) & (~no1electron), particleNet_mass_legacy_subjet_et), ((~no1tau) & (~no1electron), particleNet_mass_legacy_boostedtau_et)],
+
+            #matched 2 HPS boostedtaus: 1; matched 2 subjets: 2; none matching: 0
+            "CA_isDauTau_et": [((~no1subjet) & (~no1electron), 2), ((~no1tau) & (~no1electron), 1)],
+
+            "CA_dau0_pt_et": [((~no1subjet) & (~no1electron), subjet0_pt), ((~no1tau) & (~no1electron), tau0_pt)],
+            "CA_dau1_pt_et": [((~no1subjet) & (~no1electron), electron0_pt), ((~no1tau) & (~no1electron), electron0_pt)],
+            "CA_dau0_eta_et": [((~no1subjet) & (~no1electron), subjet0_eta), ((~no1tau) & (~no1electron), tau0_eta)],
+            "CA_dau1_eta_et": [((~no1subjet) & (~no1electron), electron0_eta), ((~no1tau) & (~no1electron), electron0_eta)],
+            "CA_dau0_phi_et": [((~no1subjet) & (~no1electron), subjet0_phi), ((~no1tau) & (~no1electron), tau0_phi)],
+            "CA_dau1_phi_et": [((~no1subjet) & (~no1electron), electron0_phi), ((~no1tau) & (~no1electron), electron0_phi)],
+            "CA_dau0_mass_et": [((~no1subjet) & (~no1electron), subjet0_mass), ((~no1tau) & (~no1electron), tau0_mass)],
+            "CA_dau1_mass_et": [((~no1subjet) & (~no1electron), electron0_mass), ((~no1tau) & (~no1electron), electron0_mass)],
+
+            "CA_mass_subjets_et": [((~no1subjet) & (~no1electron), mass_subjet_et)],
+            "CA_mass_boostedtaus_et": [((~no1tau) & (~no1electron), mass_boostedtau_et)],
+            "CA_ntaus_perfatjets_et": [((~no1tau) & (~no1electron), n_matched)],
+            "CA_nsubjets_perfatjets_et": [((~no1subjet) & (~no1electron), n_matched_subjets)],
+            
         }
 
         for field, val_pairs in output_map.items():
