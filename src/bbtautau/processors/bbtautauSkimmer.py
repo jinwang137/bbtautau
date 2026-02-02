@@ -240,6 +240,11 @@ class bbtautauSkimmer(SkimmerABC):
 
         # CA variables
         ca_vars = [
+            "tau_number",
+            "globalParT_massVisApplied_othertau_merged",
+            "tau_number_in_fatjet",
+            "globalParT_massVisApplied_othertau",
+
             "mass_merged",
             "msoftdrop_merged",
             "globalParT_massVisApplied_merged",
