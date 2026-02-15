@@ -241,9 +241,16 @@ class bbtautauSkimmer(SkimmerABC):
         # CA variables
         ca_vars = [
             "tau_number",
-            "globalParT_massVisApplied_othertau_merged",
             "tau_number_in_fatjet",
-            "globalParT_massVisApplied_othertau",
+            
+            "globalParT_massVisApplied_oneHPSTau",
+            "globalParT_massVisApplied_oneHPSTau_thth",
+            "globalParT_massVisApplied_oneHPSTauorMuon_thtm",
+            "globalParT_massVisApplied_oneHPSTauorElectron_thte",
+            "globalParT_massVisApplied_with_delta_axis_merged",
+            "globalParT_massVisApplied_oneHPSTauorLepton_flag",
+            "globalParT_massVisApplied_000_fatjetwithMET",
+            "globalParT_massVisApplied_000_fatjet",
 
             "mass_merged",
             "msoftdrop_merged",

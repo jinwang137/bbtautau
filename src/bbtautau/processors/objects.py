@@ -563,9 +563,16 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
     init_fields = {
 
         "CA_tau_number":(0, int),
-        "CA_globalParT_massVisApplied_othertau_merged": (-999.0, float),
         "CA_tau_number_in_fatjet":(0, int),
-        "CA_globalParT_massVisApplied_othertau": (-999.0, float),
+        
+        "CA_globalParT_massVisApplied_oneHPSTau": (-999.0, float),
+        "CA_globalParT_massVisApplied_oneHPSTau_thth": (-999.0, float),
+        "CA_globalParT_massVisApplied_oneHPSTauorMuon_thtm": (-999.0, float),
+        "CA_globalParT_massVisApplied_oneHPSTauorElectron_thte": (-999.0, float),
+        "CA_globalParT_massVisApplied_with_delta_axis_merged": (-999.0, float),
+        "CA_globalParT_massVisApplied_oneHPSTauorLepton_flag":(0, int),
+        "CA_globalParT_massVisApplied_000_fatjetwithMET": (-999.0, float),
+        "CA_globalParT_massVisApplied_000_fatjet": (-999.0, float),
 
         "CA_mass_merged": (-999.0, float),
         "CA_msoftdrop_merged": (-999.0, float),
@@ -936,18 +943,58 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
                 (~no2tau, nn_matched),
                 (no2tau, nn_matched),
             ],
-            "CA_globalParT_massVisApplied_othertau_merged": [
-                (~no2tau, globalParT_massVisApplied_boostedtau),
-                ((~no1tau) & no2tau, globalParT_massVisApplied_boostedtau_tat),
-                (no1tau, fatjets_globalParT_massVisApplied)
-            ],
             "CA_tau_number_in_fatjet": [
                 (~no2tau, n_matched),
                 (no2tau, n_matched),
-            ],
-            "CA_globalParT_massVisApplied_othertau": [
+            ]
+            "CA_globalParT_massVisApplied_oneHPSTau": [
                 ((~no1tau) & no2tau, globalParT_massVisApplied_boostedtau_tat)
             ],
+            "CA_globalParT_massVisApplied_oneHPSTau_thth": [
+                (~no2tau, globalParT_massVisApplied_boostedtau),
+                ((~no1tau) & no2tau, globalParT_massVisApplied_boostedtau_tat),
+                (no1tau, fatjets_globalParT_massVisApplied),
+            ],
+            "CA_globalParT_massVisApplied_oneHPSTauorMuon_thtm": [
+                ((~no1tau) & (~no1muon), globalParT_massVisApplied_boostedtau_mt),
+                ((~no1tau) & no1muon, globalParT_massVisApplied_boostedtau_tat),
+                (no1tau & (~no1muon), globalParT_massVisApplied_boostedtau_mt_at),
+                (no1tau & no1muon, fatjets_globalParT_massVisApplied),
+            ],
+            "CA_globalParT_massVisApplied_oneHPSTauorElectron_thte": [
+                ((~no1tau) & (~no1electron), globalParT_massVisApplied_boostedtau_et),
+                ((~no1tau) & no1electron, globalParT_massVisApplied_boostedtau_tat),
+                (no1tau & (~no1electron), globalParT_massVisApplied_boostedtau_et_at),
+                (no1tau & no1electron, fatjets_globalParT_massVisApplied),
+            ],
+            "CA_globalParT_massVisApplied_with_delta_axis_merged": [
+                (~no2tau, globalParT_massVisApplied_boostedtau), #2tau
+                ((~no1tau) & no2tau & (~no1electron), globalParT_massVisApplied_boostedtau_et), #1t1e0m
+                ((~no1tau) & no2tau & (~no1muon), globalParT_massVisApplied_boostedtau_mt), #1t1m(0-1e)
+                ((~no1tau) & no2tau & no1electron & no1muon, globalParT_massVisApplied_boostedtau_tat), #1t0e0m
+                (no1tau & (~no1electron), globalParT_massVisApplied_boostedtau_et_at), #0t1e0m
+                (no1tau & (~no1muon), globalParT_massVisApplied_boostedtau_mt_at), #0t0e1m
+                (no1tau & no1electron & no1muon, fatjets_globalParT_massVisApplied), #0t0e0m
+            ],
+            "CA_globalParT_massVisApplied_oneHPSTauorLepton_flag": [
+                (~no2tau, 1), #2tau
+                ((~no1tau) & no2tau & (~no1electron), 2), #1t1e0m
+                ((~no1tau) & no2tau & (~no1muon), 3), #1t1m(0-1e)
+                ((~no1tau) & no2tau & no1electron & no1muon, 4), #1t0e0m
+                (no1tau & (~no1electron), 5), #0t1e0m
+                (no1tau & (~no1muon), 6), #0t0e1m
+                (no1tau & no1electron & no1muon, 7), #0t0e0m
+            ],
+            "CA_globalParT_massVisApplied_000_fatjetwithMET": [
+                (no1tau & no1electron & no1muon, globalParT_massVisApplied_fatjet_tt), #0t0e0m
+            ],
+            "CA_globalParT_massVisApplied_000_fatjet": [
+                (no1tau & no1electron & no1muon, fatjets_globalParT_massVisApplied), #0t0e0m
+            ],
+
+
+
+
 
 
             # merged：et -> mt -> hh；eachchannel: tau -> subjet -> fatjet
