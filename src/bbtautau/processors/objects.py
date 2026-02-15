@@ -946,7 +946,7 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
             "CA_tau_number_in_fatjet": [
                 (~no2tau, n_matched),
                 (no2tau, n_matched),
-            ]
+            ],
             "CA_globalParT_massVisApplied_oneHPSTau": [
                 ((~no1tau) & no2tau, globalParT_massVisApplied_boostedtau_tat)
             ],
