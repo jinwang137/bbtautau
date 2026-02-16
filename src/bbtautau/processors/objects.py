@@ -501,6 +501,65 @@ def calculate_invariant_mass_2d(fatjets_mass, fatjets_pt, fatjets_eta, fatjets_p
     mass = ak.where(invalid, -999, mass)
     return mass
 
+def project_met_to_fatjet_p4(fatjet_mass, fatjet_pt, fatjet_eta, fatjet_phi, fatjet_masscorr,
+                            met_pt, met_phi):
+    invalid = (
+        (fatjet_pt == -999)
+        | (fatjet_eta == -999)
+        | (fatjet_phi == -999)
+        | (fatjet_mass == -999)
+        | (met_pt == -999)
+        | (met_phi == -999)
+    )
+
+    px_fj = fatjet_pt * np.cos(fatjet_phi)
+    py_fj = fatjet_pt * np.sin(fatjet_phi)
+    pz_fj = fatjet_pt * np.sinh(fatjet_eta)
+
+    px_met = met_pt * np.cos(met_phi)
+    py_met = met_pt * np.sin(met_phi)
+
+    px_met = px_met[..., None]
+    py_met = py_met[..., None]
+
+    dot = px_met * px_fj + py_met * py_fj
+    pt2 = px_fj**2 + py_fj**2
+    pt2 = np.where(pt2 == 0, 1e-6, pt2)
+
+    proj_x = dot / pt2 * px_fj
+    proj_y = dot / pt2 * py_fj
+
+    pt_old = np.sqrt(px_fj**2 + py_fj**2)
+    pt_new = np.sqrt((px_fj + proj_x)**2 + (py_fj + proj_y)**2)
+    k = np.where(pt_old == 0, 1, pt_new / pt_old)
+
+    px_new = px_fj * k
+    py_new = py_fj * k
+    pz_new = pz_fj * k
+
+    phi_new = np.arctan2(py_new, px_new)
+
+    pt_safe = np.where(pt_new == 0, 1e-6, pt_new)
+    eta_new = np.arcsinh(pz_new / pt_safe)
+
+    p2_vis = px_fj**2 + py_fj**2 + pz_fj**2
+    fatjet_mass = fatjet_mass * fatjet_masscorr
+    E_vis = np.sqrt(p2_vis + fatjet_mass**2)
+
+    E_new = E_vis * k
+
+    M2_new = E_new**2 - (px_new**2 + py_new**2 + pz_new**2)
+    M2_new = np.where(M2_new < 0, 0, M2_new)  # 数值保护
+    M_new = np.sqrt(M2_new)
+
+    pt_new = ak.where(invalid, -999, pt_new)
+    eta_new = ak.where(invalid, -999, eta_new)
+    phi_new = ak.where(invalid, -999, phi_new)
+    M_new = ak.where(invalid, -999, M_new)
+
+    return pt_new, eta_new, phi_new, M_new
+
+
 def dRdau(eta0, phi0, eta1, phi1,):
     invalid = (
         (eta0 == -999)
@@ -571,8 +630,10 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
         "CA_globalParT_massVisApplied_oneHPSTauorElectron_thte": (-999.0, float),
         "CA_globalParT_massVisApplied_with_delta_axis_merged": (-999.0, float),
         "CA_globalParT_massVisApplied_oneHPSTauorLepton_flag":(0, int),
+
         "CA_globalParT_massVisApplied_000_fatjetwithMET": (-999.0, float),
         "CA_globalParT_massVisApplied_000_fatjet": (-999.0, float),
+        "CA_globalParT_massVisApplied_000_fatjet_MET_with_same_dirc": (-999.0, float),
 
         "CA_mass_merged": (-999.0, float),
         "CA_msoftdrop_merged": (-999.0, float),
@@ -932,6 +993,13 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
         globalParT_massVisApplied_boostedtau_mt_at = CA_got(met_pt, met_phi, fatjets_globalParT_massVisApplied, fake_corr, tau_f_m_eta, muon0_eta, tau_f_m_phi, muon0_phi, tau_f_m_pt, muon0_pt)
         globalParT_massResApplied_boostedtau_mt_at = CA_got(met_pt, met_phi, fatjets_globalParT_massResApplied, fake_corr, tau_f_m_eta, muon0_eta, tau_f_m_phi, muon0_phi, tau_f_m_pt, muon0_pt)
         particleNet_mass_legacy_boostedtau_mt_at = CA_got(met_pt, met_phi, fatjets_particleNet_mass_legacy, fake_corr, tau_f_m_eta, muon0_eta, tau_f_m_phi, muon0_phi, tau_f_m_pt, muon0_pt)
+        
+        #new MET+FatJet
+        pt_new, eta_new, phi_new, mass_fatjet_withMET = project_met_to_fatjet_p4(fatjets_mass, fatjets_pt, fatjets_eta, fatjets_phi, fatjets_masscorr, met_pt, met_phi)
+        pt_new, eta_new, phi_new, msoftdrop_fatjet_withMET = project_met_to_fatjet_p4(fatjets_msoftdrop, fatjets_pt, fatjets_eta, fatjets_phi, fatjets_masscorr, met_pt, met_phi)
+        pt_new, eta_new, phi_new, globalParT_massVisApplied_fatjet_withMET = project_met_to_fatjet_p4(fatjets_globalParT_massVisApplied, fatjets_pt, fatjets_eta, fatjets_phi, fake_corr, met_pt, met_phi)
+        pt_new, eta_new, phi_new, globalParT_massResApplied_fatjet_withMET = project_met_to_fatjet_p4(fatjets_globalParT_massResApplied, fatjets_pt, fatjets_eta, fatjets_phi, fake_corr, met_pt, met_phi)
+        pt_new, eta_new, phi_new, particleNet_mass_legacy_fatjet_withMET = project_met_to_fatjet_p4(fatjets_particleNet_mass_legacy, fatjets_pt, fatjets_eta, fatjets_phi, fake_corr, met_pt, met_phi)
 
 
 
@@ -990,6 +1058,9 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
             ],
             "CA_globalParT_massVisApplied_000_fatjet": [
                 (no1tau & no1electron & no1muon, fatjets_globalParT_massVisApplied), #0t0e0m
+            ],
+            "CA_globalParT_massVisApplied_000_fatjet_MET_with_same_dirc": [
+                (no1tau & no1electron & no1muon, globalParT_massVisApplied_fatjet_withMET), #0t0e0m
             ],
 
 

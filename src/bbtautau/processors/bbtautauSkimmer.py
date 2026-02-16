@@ -249,8 +249,10 @@ class bbtautauSkimmer(SkimmerABC):
             "globalParT_massVisApplied_oneHPSTauorElectron_thte",
             "globalParT_massVisApplied_with_delta_axis_merged",
             "globalParT_massVisApplied_oneHPSTauorLepton_flag",
+
             "globalParT_massVisApplied_000_fatjetwithMET",
             "globalParT_massVisApplied_000_fatjet",
+            "globalParT_massVisApplied_000_fatjet_MET_with_same_dirc",
 
             "mass_merged",
             "msoftdrop_merged",
