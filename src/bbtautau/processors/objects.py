@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import awkward as ak
 import numpy as np
-from boostedhh.processors.objects import jetid_v12
+from boostedhh.processors.objects import jetid_v12,jetid_v15
 from boostedhh.processors.utils import PDGID
 from coffea.nanoevents.methods.nanoaod import (
     ElectronArray,
@@ -39,7 +39,7 @@ def trig_match_sel(events, leptons, trig_leptons, year, trigger, filterbit, ptcu
     return trig_l_sel
 
 
-def get_ak8jets(fatjets: FatJetArray):
+def get_ak8jets(fatjets: FatJetArray, nano_version: str):
     """
     Add extra variables to FatJet collection
     """
@@ -49,37 +49,83 @@ def get_ak8jets(fatjets: FatJetArray):
     fatjets["pt_raw"] = (1 - fatjets.rawFactor) * fatjets.pt
     fatjets["mass_raw"] = (1 - fatjets.rawFactor) * fatjets.mass
 
-    fatjets["globalParT_QCD"] = (
-        fatjets.globalParT_QCD0HF + fatjets.globalParT_QCD1HF + fatjets.globalParT_QCD2HF
-    )
-    fatjets["globalParT_Top"] = fatjets.globalParT_TopW + fatjets.globalParT_TopbW
-
+    # fatjets["globalParT_QCD"] = (
+    #     fatjets.globalParT_QCD0HF + fatjets.globalParT_QCD1HF + fatjets.globalParT_QCD2HF
+    # )
+    # fatjets["globalParT_Top"] = fatjets.globalParT_TopW + fatjets.globalParT_TopbW
     fatjets["particleNetLegacy_XbbvsQCD"] = fatjets.particleNetLegacy_Xbb / (
         fatjets.particleNetLegacy_Xbb + fatjets.particleNetLegacy_QCD
     )
-    fatjets["globalParT_XbbvsQCD"] = fatjets.globalParT_Xbb / (
-        fatjets.globalParT_Xbb + fatjets["globalParT_QCD"]
-    )
-    fatjets["globalParT_XbbvsQCDTop"] = fatjets.globalParT_Xbb / (
-        fatjets.globalParT_Xbb + fatjets["globalParT_QCD"] + fatjets["globalParT_Top"]
-    )
+    # fatjets["globalParT_XbbvsQCD"] = fatjets.globalParT_Xbb / (
+    #     fatjets.globalParT_Xbb + fatjets["globalParT_QCD"]
+    # )
+    # fatjets["globalParT_XbbvsQCDTop"] = fatjets.globalParT_Xbb / (
+    #     fatjets.globalParT_Xbb + fatjets["globalParT_QCD"] + fatjets["globalParT_Top"]
+    # )
 
-    for tautau in ["tauhtauh", "tauhtaue", "tauhtaum"]:
-        fatjets[f"globalParT_X{tautau}vsQCD"] = fatjets[f"globalParT_X{tautau}"] / (
-            fatjets[f"globalParT_X{tautau}"] + fatjets["globalParT_QCD"]
+    if nano_version.startswith("v12"):
+        fatjets["globalParT_QCD"] = (
+            fatjets.globalParT_QCD0HF + fatjets.globalParT_QCD1HF + fatjets.globalParT_QCD2HF
         )
-        fatjets[f"globalParT_X{tautau}vsQCDTop"] = fatjets[f"globalParT_X{tautau}"] / (
-            fatjets[f"globalParT_X{tautau}"] + fatjets["globalParT_QCD"] + fatjets["globalParT_Top"]
+        fatjets["globalParT_Top"] = fatjets.globalParT_TopW + fatjets.globalParT_TopbW
+        fatjets["globalParT_XbbvsQCD"] = fatjets.globalParT_Xbb / (
+            fatjets.globalParT_Xbb + fatjets["globalParT_QCD"]
+        )
+        fatjets["globalParT_XbbvsQCDTop"] = fatjets.globalParT_Xbb / (
+            fatjets.globalParT_Xbb + fatjets["globalParT_QCD"] + fatjets["globalParT_Top"]
+        )
+        for tautau in ["tauhtauh", "tauhtaue", "tauhtaum"]:
+            fatjets[f"globalParT_X{tautau}vsQCD"] = fatjets[f"globalParT_X{tautau}"] / (
+                fatjets[f"globalParT_X{tautau}"] + fatjets["globalParT_QCD"]
+            )
+            fatjets[f"globalParT_X{tautau}vsQCDTop"] = fatjets[f"globalParT_X{tautau}"] / (
+                fatjets[f"globalParT_X{tautau}"] + fatjets["globalParT_QCD"] + fatjets["globalParT_Top"]
+            )
+    elif nano_version.startswith("v15"):
+        fatjets["globalParT_QCD"] = fatjets.globalParT3_QCD
+        fatjets["globalParT_Top"] = fatjets.globalParT3_TopbWev + fatjets.globalParT3_TopbWmv + fatjets.globalParT3_TopbWq + fatjets.globalParT3_TopbWqq + fatjets.globalParT3_TopbWtauhv
+        fatjets["globalParT_XbbvsQCD"] = fatjets.globalParT3_Xbb / (
+            fatjets.globalParT3_Xbb + fatjets["globalParT_QCD"]
+        )
+        fatjets["globalParT_XbbvsQCDTop"] = fatjets.globalParT3_Xbb / (
+            fatjets.globalParT3_Xbb + fatjets["globalParT_QCD"] + fatjets["globalParT_Top"]
+        )
+        for tautau in ["tauhtauh", "tauhtaue", "tauhtaum"]:
+            fatjets[f"globalParT_X{tautau}vsQCD"] = fatjets[f"globalParT3_X{tautau}"] / (
+                fatjets[f"globalParT3_X{tautau}"] + fatjets["globalParT_QCD"]
+            )
+            fatjets[f"globalParT_X{tautau}vsQCDTop"] = fatjets[f"globalParT3_X{tautau}"] / (
+                fatjets[f"globalParT3_X{tautau}"] + fatjets["globalParT_QCD"] + fatjets["globalParT_Top"]
+            )
+
+        
+
+    # for tautau in ["tauhtauh", "tauhtaue", "tauhtaum"]:
+    #     fatjets[f"globalParT_X{tautau}vsQCD"] = fatjets[f"globalParT_X{tautau}"] / (
+    #         fatjets[f"globalParT_X{tautau}"] + fatjets["globalParT_QCD"]
+    #     )
+    #     fatjets[f"globalParT_X{tautau}vsQCDTop"] = fatjets[f"globalParT_X{tautau}"] / (
+    #         fatjets[f"globalParT_X{tautau}"] + fatjets["globalParT_QCD"] + fatjets["globalParT_Top"]
+    #     )
+    if nano_version.startswith("v12"):
+        fatjets["globalParT_massResCorr"] = fatjets.globalParT_massRes
+        fatjets["globalParT_massVisCorr"] = fatjets.globalParT_massVis
+        fatjets["globalParT_massResApplied"] = (
+            fatjets.globalParT_massRes * (1 - fatjets.rawFactor) * fatjets.mass
+        )
+        fatjets["globalParT_massVisApplied"] = (
+            fatjets.globalParT_massVis * (1 - fatjets.rawFactor) * fatjets.mass
+        )
+    elif nano_version.startswith("v15"):
+        fatjets["globalParT_massResCorr"] = fatjets.mass
+        fatjets["globalParT_massVisCorr"] = fatjets.mass
+        fatjets["globalParT_massResApplied"] = (
+            fatjets.globalParT3_massCorrX2p * (1 - fatjets.rawFactor) * fatjets.mass
+        )
+        fatjets["globalParT_massVisApplied"] = (
+            fatjets.globalParT3_massCorrGeneric * (1 - fatjets.rawFactor) * fatjets.mass
         )
 
-    fatjets["globalParT_massResCorr"] = fatjets.globalParT_massRes
-    fatjets["globalParT_massVisCorr"] = fatjets.globalParT_massVis
-    fatjets["globalParT_massResApplied"] = (
-        fatjets.globalParT_massRes * (1 - fatjets.rawFactor) * fatjets.mass
-    )
-    fatjets["globalParT_massVisApplied"] = (
-        fatjets.globalParT_massVis * (1 - fatjets.rawFactor) * fatjets.mass
-    )
     return fatjets
 
 
@@ -101,7 +147,13 @@ def good_ak8jets(
 
     # Data does not have .neHEF etc. fields for fatjets, so above recipe doesn't work
     # Either way, doesn't matter since we only use tightID, and it is correct for eta < 2.7
-    jetidtight = fatjets.isTight
+
+    # jin day312
+    # jetidtight = fatjets.isTight
+    if nano_version.startswith("v12"):
+        jetidtight = fatjets.isTight
+    elif nano_version.startswith("v15"):
+        jetidtight, jetidtightlepveto = jetid_v15(fatjets)  # v12 jetid fix
 
     fatjet_sel = (
         jetidtight
@@ -115,6 +167,8 @@ def good_ak8jets(
 def good_ak4jets(jets: JetArray, nano_version: str):
     if nano_version.startswith("v12"):
         jetidtight, jetidtightlepveto = jetid_v12(jets)  # v12 jetid fix
+    elif nano_version.startswith("v15"):
+        jetidtight, jetidtightlepveto = jetid_v15(jets)  # v12 jetid fix
     else:
         raise NotImplementedError(f"Jet ID fix not implemented yet for {nano_version}")
     jet_sel = (jets.pt > 15) & (np.abs(jets.eta) < 4.7) & jetidtight & jetidtightlepveto
@@ -761,8 +815,6 @@ def get_CA_MASS(fatjets: FatJetArray, taus: TauArray, met: MissingET, subjets: J
         fatjets_mass = fatjets.mass
         fatjets_msoftdrop = fatjets.msoftdrop
 
-        fatjets_globalParT_massVis = fatjets.globalParT_massVis
-        fatjets_globalParT_massRes = fatjets.globalParT_massRes
         fatjets_globalParT_massResApplied = fatjets.globalParT_massResApplied
         fatjets_globalParT_massVisApplied = fatjets.globalParT_massVisApplied
         fatjets_particleNet_mass_legacy = fatjets.particleNetLegacy_mass

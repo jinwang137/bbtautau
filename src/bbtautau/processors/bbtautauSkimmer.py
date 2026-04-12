@@ -180,63 +180,127 @@ class bbtautauSkimmer(SkimmerABC):
         self.jmsr_vars = ["msoftdrop", "particleNet_mass_legacy", "ParTmassVis", "ParTmassRes"]
 
         # particlenet legacy variables
-        pnet_vars = [
-            "Xbb",
-            "QCD",
-            "QCDb",
-            "QCDbb",
-            "QCDcc",
-            "QCDc",
-            "QCDothers",
-            "XbbvsQCD",
-            "mass",
-        ]
-        self.skim_vars["FatJet"] = {
-            **self.skim_vars["FatJet"],
-            **{f"particleNetLegacy_{var}": f"PNet{var}Legacy" for var in pnet_vars},
-        }
 
-        # glopart variables
-        glopart_vars = [
-            "QCD1HF",
-            "QCD2HF",
-            "QCD0HF",
-            "TopW",
-            "TopbW",
-            "TopbWev",
-            "TopbWmv",
-            "TopbWtauhv",
-            "TopbWq",
-            "TopbWqq",
-            "Xbb",
-            "Xcc",
-            "Xcs",
-            "Xgg",
-            "Xqq",
-            "Xtauhtaue",
-            "Xtauhtauh",
-            "Xtauhtaum",
-            # Derived variables
-            "massResCorr",
-            "massVisCorr",
-            "massResApplied",
-            "massVisApplied",
-            "QCD",
-            "Top",
-            "XbbvsQCD",
-            "XbbvsQCDTop",
-            "XtauhtauevsQCD",
-            "XtauhtauevsQCDTop",
-            "XtauhtaumvsQCD",
-            "XtauhtaumvsQCDTop",
-            "XtauhtauhvsQCD",
-            "XtauhtauhvsQCDTop",
-        ]
+        #jin
+        if nano_version.startswith("v12"):
 
-        self.skim_vars["FatJet"] = {
-            **self.skim_vars["FatJet"],
-            **{f"globalParT_{var}": f"ParT{var}" for var in glopart_vars},
-        }
+            pnet_vars = [
+                "Xbb",
+                "QCD",
+                "QCDb",
+                "QCDbb",
+                "QCDcc",
+                "QCDc",
+                "QCDothers",
+                "XbbvsQCD",
+                "mass",
+            ]
+            self.skim_vars["FatJet"] = {
+                **self.skim_vars["FatJet"],
+                **{f"particleNetLegacy_{var}": f"PNet{var}Legacy" for var in pnet_vars},
+            }
+
+            # glopart variables
+            glopart_vars = [
+                "QCD1HF",
+                "QCD2HF",
+                "QCD0HF",
+                "TopW",
+                "TopbW",
+                "TopbWev",
+                "TopbWmv",
+                "TopbWtauhv",
+                "TopbWq",
+                "TopbWqq",
+                "Xbb",
+                "Xcc",
+                "Xcs",
+                "Xgg",
+                "Xqq",
+                "Xtauhtaue",
+                "Xtauhtauh",
+                "Xtauhtaum",
+                # Derived variables
+                "massResCorr",
+                "massVisCorr",
+                "massResApplied",
+                "massVisApplied",
+                "QCD",
+                "Top",
+                "XbbvsQCD",
+                "XbbvsQCDTop",
+                "XtauhtauevsQCD",
+                "XtauhtauevsQCDTop",
+                "XtauhtaumvsQCD",
+                "XtauhtaumvsQCDTop",
+                "XtauhtauhvsQCD",
+                "XtauhtauhvsQCDTop",
+            ]
+
+            self.skim_vars["FatJet"] = {
+                **self.skim_vars["FatJet"],
+                **{f"globalParT_{var}": f"ParT{var}" for var in glopart_vars},
+            }
+
+        elif nano_version.startswith("v15"):
+
+            pnet_vars = [
+                "Xbb",
+                "QCD",
+                # "QCDb",
+                # "QCDbb",
+                # "QCDcc",
+                # "QCDc",
+                # "QCDothers",
+                "XbbvsQCD",
+                "mass",
+            ]
+            self.skim_vars["FatJet"] = {
+                **self.skim_vars["FatJet"],
+                **{f"particleNetLegacy_{var}": f"PNet{var}Legacy" for var in pnet_vars},
+            }
+
+            # glopart variables
+            glopart_vars = [
+                # "QCD1HF",
+                # "QCD2HF",
+                # "QCD0HF",
+                # "TopW",
+                # "TopbW",
+                # "TopbWev",
+                # "TopbWmv",
+                # "TopbWtauhv",
+                # "TopbWq",
+                # "TopbWqq",
+                # "Xbb",
+                # "Xcc",
+                # "Xcs",
+                # "Xgg",
+                # "Xqq",
+                # "Xtauhtaue",
+                # "Xtauhtauh",
+                # "Xtauhtaum",
+                # Derived variables
+                "massResCorr",
+                "massVisCorr",
+                "massResApplied",
+                "massVisApplied",
+                "QCD",
+                "Top",
+                "XbbvsQCD",
+                "XbbvsQCDTop",
+                "XtauhtauevsQCD",
+                "XtauhtauevsQCDTop",
+                "XtauhtaumvsQCD",
+                "XtauhtaumvsQCDTop",
+                "XtauhtauhvsQCD",
+                "XtauhtauhvsQCDTop",
+            ]
+
+            self.skim_vars["FatJet"] = {
+                **self.skim_vars["FatJet"],
+                **{f"globalParT_{var}": f"ParT{var}" for var in glopart_vars},
+            }
 
         # CA variables
         ca_vars = [
@@ -360,6 +424,9 @@ class bbtautauSkimmer(SkimmerABC):
         logging.info(f"# events {len(events)}")
 
         year = events.metadata["dataset"].split("_")[0]
+        print(type(year))
+        print(year)
+        print(self._nano_version)
         dataset = "_".join(events.metadata["dataset"].split("_")[1:])
         isData = not hasattr(events, "genWeight")
 
@@ -429,9 +496,15 @@ class bbtautauSkimmer(SkimmerABC):
         )
 
         if JEC_loader.met_factory is not None:
-            met = JEC_loader.met_factory.build(events.MET, jets, {}) if isData else events.MET
+            if self._nano_version == "v15":
+                met = JEC_loader.met_factory.build(events.PFMET, jets, {}) if isData else events.PFMET
+            else:
+                met = JEC_loader.met_factory.build(events.MET, jets, {}) if isData else events.MET
         else:
-            met = events.MET
+            if self._nano_version == "v15":
+                met = events.PFMET
+            else:
+                met = events.MET
 
         print("ak4 JECs", f"{time.time() - start:.2f}")
 
@@ -441,7 +514,7 @@ class bbtautauSkimmer(SkimmerABC):
 
         # AK8 Jets
         num_ak8_jets = 3
-        fatjets = objects.get_ak8jets(events.FatJet)  # this adds all our extra variables e.g. TXbb
+        fatjets = objects.get_ak8jets(events.FatJet, nano_version=self._nano_version)  # this adds all our extra variables e.g. TXbb
         fatjets, jec_shifted_fatjetvars = JEC_loader.get_jec_jets(
             events,
             fatjets,
@@ -697,6 +770,9 @@ class bbtautauSkimmer(SkimmerABC):
         # Selection
         ######################
 
+        #jin 20260406_v15check
+        print(f"Events before any selection: {len(events)}")
+
         HLT_triggered = np.any(
             np.array(
                 [events.HLT[trigger] for trigger in self.HLTs[year] if trigger in events.HLT.fields]
@@ -708,6 +784,8 @@ class bbtautauSkimmer(SkimmerABC):
         apply_trigger = False
         if apply_trigger:
             add_selection("trigger", HLT_triggered, *selection_args)
+            #jin 20260406_v15check
+            print(f"After trigger selection: {np.sum(HLT_triggered)}")
 
         # metfilters
         cut_metfilters = np.ones(len(events), dtype="bool")
@@ -715,10 +793,16 @@ class bbtautauSkimmer(SkimmerABC):
             if mf in events.Flag.fields:
                 cut_metfilters = cut_metfilters & events.Flag[mf]
         add_selection("met_filters", cut_metfilters, *selection_args)
+        #jin 20260406_v15check
+        cumulative = selection.all(*selection.names)
+        print(f"After metfilters: {np.sum(cumulative)}")
 
         # jet veto maps
         cut_jetveto = get_jetveto_event(jets, year)
         add_selection("ak4_jetveto", cut_jetveto, *selection_args)
+        #jin 20260406_v15check
+        cumulative = selection.all(*selection.names)
+        print(f"After ak4_jetveto: {np.sum(cumulative)}")
 
         # # >=2 AK8 jets passing selections
         # add_selection("ak8_numjets", (ak.num(fatjets) >= 2), *selection_args)
@@ -729,6 +813,9 @@ class bbtautauSkimmer(SkimmerABC):
                 np.sum(ak8FatJetVars["ak8FatJetPt"] >= self.fatjet_selection["pt"], axis=1) >= 1
             )
             add_selection("ak8_pt", cut_pt, *selection_args)
+            #jin 20260406_v15check
+            cumulative = selection.all(*selection.names)
+            print(f"After ak8_pt: {np.sum(cumulative)}")
 
         # # >=1 AK8 jets with mSD >= 40 GeV
         # cut_mass = np.sum(ak8FatJetVars["ak8FatJetMsd"] >= 40, axis=1) >= 1
@@ -765,12 +852,18 @@ class bbtautauSkimmer(SkimmerABC):
                 >= 1
             )
             add_selection("ak8_bb_preselection", cut_bb, *selection_args)
+            #jin 20260406_v15check
+            cumulative = selection.all(*selection.names)
+            print(f"After ak8_bb_preselection: {np.sum(cumulative)}")
 
         if self._prescale_factor:
             cut_prescale = (
                 events.event % self._prescale_factor == 0
             )
             add_selection("prescale", cut_prescale, *selection_args)
+            #jin 20260406_v15check
+            cumulative = selection.all(*selection.names)
+            print(f"After prescale: {np.sum(cumulative)}")
 
         print("Selection", f"{time.time() - start:.2f}")
 
@@ -780,9 +873,14 @@ class bbtautauSkimmer(SkimmerABC):
 
         totals_dict = {"nevents": n_events}
 
+        #jin 20260406_v15check
+        print(n_events)
+
         if isData:
             skimmed_events["weight"] = np.ones(n_events)
         else:
+            #jin 20260406_v15check
+            print("ok")
             weights_dict, totals_temp = self.add_weights(
                 events,
                 year,
@@ -790,14 +888,22 @@ class bbtautauSkimmer(SkimmerABC):
                 gen_weights,
                 gen_selected,
             )
+            #jin 20260406_v15check
+            print("ok1")
             skimmed_events = {**skimmed_events, **weights_dict}
             totals_dict = {**totals_dict, **totals_temp}
+            #jin 20260406_v15check
+            print("ok2")
 
         ##############################
         # Reshape and apply selections
         ##############################
 
         sel_all = selection.all(*selection.names)
+        #jin 20260406_v15check
+        print(f"Events passing all selections: {np.sum(sel_all)}")
+        print(f"Total selection.names: {selection.names}")
+        
         skimmed_events = {
             key: value.reshape(len(skimmed_events["weight"]), -1)[sel_all]
             for (key, value) in skimmed_events.items()
@@ -811,6 +917,8 @@ class bbtautauSkimmer(SkimmerABC):
 
         print("Return ", f"{time.time() - start:.2f}")
         print("Columns:", print(list(dataframe.columns)))
+        #jin 20260406_v15check
+        print(f"Final dataframe shape: {dataframe.shape}")
         return {year: {dataset: {"totals": totals_dict, "cutflow": cutflow}}}
 
     def postprocess(self, accumulator):

@@ -308,8 +308,8 @@ class Analyser:
 
                 for j, (var_suffix, mlabel) in enumerate(
                     zip(
-                        ["Msd", "PNetmassLegacy", "ParTmassResApplied", "ParTmassVisApplied"],
-                        ["SoftDrop", "PNetLegacy", "ParT Res", "ParT Vis"],
+                        ["Msd", "PNetmassLegacy", "ParTmassResApplied", "ParTmassVisApplied", "CAglobalParT_massVisApplied_with_delta_axis_merged", "CAglobalParT_massVisApplied_merged"],
+                        ["SoftDrop", "PNetLegacy", "ParT Res", "ParT Vis", "CAMass", "CAMass_old"],
                     )
                 ):
                     # Use LoadedSample.get_var with jet prefix - it automatically applies masks

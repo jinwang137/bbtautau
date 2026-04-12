@@ -35,15 +35,25 @@ def path_dict(path: str, path_2022: str = None):
 
 
 MAIN_DIR = Path("../../")
+#jin 20260322
+# MODEL_DIR = Path(
+#     "/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/trained_models"
+# )
+# CLASSIFIER_DIR = Path("/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/")
+# BDT_EVAL_DIR = Path("/ceph/cms/store/user/lumori/bbtautau/BDT_predictions/")
+# DATA_DIR = "/ceph/cms/store/user/lumori/bbtautau/skimmer/25Sep23AddVars_v12_private_signal"
+# DATA_PATHS = path_dict(DATA_DIR)
+
+# PLOT_DIR = Path("/home/users/lumori/bbtautau/plots")
 MODEL_DIR = Path(
-    "/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/trained_models"
+    "/eos/user/j/jinwa/bdt_out/"
 )
-CLASSIFIER_DIR = Path("/home/users/lumori/bbtautau/src/bbtautau/postprocessing/classifier/")
-BDT_EVAL_DIR = Path("/ceph/cms/store/user/lumori/bbtautau/BDT_predictions/")
-DATA_DIR = "/ceph/cms/store/user/lumori/bbtautau/skimmer/25Sep23AddVars_v12_private_signal"
+CLASSIFIER_DIR = Path("/eos/user/j/jinwa/bdt_out/")
+BDT_EVAL_DIR = Path("/eos/user/j/jinwa/bdt_pr/")
+DATA_DIR = "/eos/user/j/jinwa/download_test/26Mar5All_v12_private_signal"
 DATA_PATHS = path_dict(DATA_DIR)
 
-PLOT_DIR = Path("/home/users/lumori/bbtautau/plots")
+PLOT_DIR = Path("/eos/user/j/jinwa/bbtautau/plots")
 
 # backwards compatibility
 # data_dir_2022 = "/ceph/cms/store/user/rkansal/bbtautau/skimmer/25Apr17bbpresel_v12_private_signal"
@@ -57,6 +67,13 @@ SHAPE_VAR = {
     "nbins": 16,
     "blind_window": [110, 150],
 }
+
+# SHAPE_VAR = {
+#     "name": "ttFatJetCAglobalParT_massVisApplied_with_delta_axis_merged",
+#     "range": [60, 220],
+#     "nbins": 16,
+#     "blind_window": [110, 150],
+# }
 
 PT_CUTS = {
     "bb": 250,

@@ -227,6 +227,8 @@ def get_columns(
             ("ak8FatJetPNetmassLegacy", 3),
             ("ak8FatJetParTmassResApplied", 3),
             ("ak8FatJetParTmassVisApplied", 3),
+            ("ak8FatJetCAglobalParT_massVisApplied_with_delta_axis_merged", 3),
+            ("ak8FatJetCAglobalParT_massVisApplied_merged", 3),
             ("ak8FatJetMsd", 3),
         ]
 

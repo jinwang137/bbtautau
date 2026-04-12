@@ -938,6 +938,7 @@ class ROCAnalyzer:
         # check that all discriminants have the same signal name
         signal_name = self.discriminants[disc_names[0]].get_signal_name()
         for disc_name in disc_names:
+            print(self.discriminants.keys())
             if self.discriminants[disc_name].get_signal_name() != signal_name:
                 print(
                     f"Warning: Discriminant {disc_name} has a different signal name than {signal_name}. Aborting."

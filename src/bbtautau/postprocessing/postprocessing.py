@@ -135,6 +135,7 @@ shape_vars = [
     ShapeVar(
         SHAPE_VAR["name"],
         r"$m^{bb}_\mathrm{Reg}$ [GeV]",
+        #r"$m^{tt}_\mathrm{CA}$ [GeV]",
         (SHAPE_VAR["nbins"], *SHAPE_VAR["range"]),
         reg=True,
         blind_window=SHAPE_VAR["blind_window"],
