@@ -1162,8 +1162,6 @@ def load_data_channel(
         derive_vbf_variables(events_dict[year])
 
     # Load or compute BDT predictions for every requested model.
-    # Each model writes signal-specific columns (e.g. BDTggfbb{ch}vsAll, BDTvbfbb{ch}vsAll)
-    # so there is no overwrite risk between models. The caller controls which models to evaluate.
     if models is not None:
         for model in models:
             if model not in BDT_CONFIG:
@@ -1202,6 +1200,7 @@ def singleVarHist(
     bbtt_masks: dict[str, pd.DataFrame] = None,
     weight_key: str = "finalWeight",
     selection: dict | None = None,
+    transform: callable | None = None,
 ) -> Hist:
     """
     Makes and fills a histogram for variable `var` using data in the `events` dict.
@@ -1215,6 +1214,8 @@ def singleVarHist(
           Bins in this region will be set to 0 for data.
         selection (dict, optional): if performing a selection first, dict of boolean arrays for
           each sample
+        transform (callable, optional): if given, applied to the raw variable values before
+          filling. The ``shape_var`` axis must already be defined over the transformed range.
     """
 
     if not isinstance(next(iter(events_dict.values())), LoadedSample):
@@ -1244,6 +1245,9 @@ def singleVarHist(
 
         fill_data = {var: sample.get_var(fill_var)}
         weight = sample.get_var(weight_key)
+
+        if transform is not None and fill_data[var] is not None:
+            fill_data[var] = transform(fill_data[var])
 
         if selection is not None:
             sel = selection[skey]

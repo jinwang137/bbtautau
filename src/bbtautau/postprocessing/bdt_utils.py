@@ -21,8 +21,11 @@ from bbtautau.postprocessing.bbtautau_types import Channel, LoadedSample
 from bbtautau.postprocessing.bdt_config import BDT_CONFIG
 from bbtautau.postprocessing.Samples import CHANNELS, canonical_signal_key
 
-# Non-interactive backend for batch/containers
-mpl.use("Agg")
+# Non-interactive backend for batch/containers, but don't clobber an already-interactive
+# backend (e.g. a Jupyter notebook's inline backend, "module://...") -- otherwise importing
+# this module from a notebook silently breaks plt.show().
+if not mpl.get_backend().startswith("module://"):
+    mpl.use("Agg")
 
 # Channel order for BDT models (must match the order used in training)
 # This defines the order of channels for each signal: he, hh, hm

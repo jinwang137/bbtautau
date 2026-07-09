@@ -153,9 +153,15 @@ def get_selection_regions(
     overlapping_channels: bool = False,
     sensitivity_disc_tag: str | None = None,
     ggf_modelname: str | None = None,
+    control_region: bool = False,
 ):
     """
     Get the selection regions for a given signal and channel.
+
+    If ``control_region`` is True, return the CR (orthogonal annulus) regions instead
+    of the nominal SR pass/fail. The SR cuts resolved below are reused as the SR-pass
+    veto, and loose cuts come from ``userConfig.CR_LOOSE_CUTS``.
+    See notes/control_region_plan.md.
     """
 
     # parse bb discriminator
@@ -183,6 +189,22 @@ def get_selection_regions(
     else:
         txbb_cut = channel.txbb_cut
         txtt_cut = channel.txtt_cut if use_ParT else channel.txtt_BDT_cut
+
+    # Control region: orthogonal annulus built from the SR cuts (as veto) + loose cuts.
+    if control_region:
+        from bbtautau.userConfig import CR_LOOSE_CUTS
+
+        loose = CR_LOOSE_CUTS[channel.key]
+        return build_control_regions(
+            channel,
+            signal,
+            use_ParT=use_ParT,
+            bb_disc=bb_disc,
+            txbb_sr=txbb_cut,
+            txtt_sr=txtt_cut,
+            txbb_loose=loose["txbb"],
+            txtt_loose=loose["txtt"],
+        )
 
     pass_cuts = {
         "bbFatJetPt": [250, CUT_MAX_VAL],
@@ -235,3 +257,63 @@ def get_selection_regions(
     }
 
     return regions
+
+
+def _tt_disc_key(channel: Channel, signal: str, use_ParT: bool) -> str:
+    """tt discriminant column name for a channel (ParT or per-channel BDT). Mirrors the
+    disc-key choice inside ``get_selection_regions`` so SR and CR stay consistent."""
+    if use_ParT:
+        return f"ttFatJetParTX{channel.tagger_label}vsQCDTop"
+    return _get_bdt_key(signal, channel, prefix_only=False)
+
+
+def build_control_regions(
+    channel: Channel,
+    signal: str,
+    *,
+    use_ParT: bool,
+    bb_disc: str,
+    txbb_sr: float,
+    txtt_sr: float,
+    txbb_loose: float,
+    txtt_loose: float,
+) -> dict[str, Region]:
+    """Build the CR (orthogonal annulus) regions from explicit cut values.
+
+    Geometry (see notes/control_region_plan.md):
+      CR-pass = (bb > txbb_loose AND tt > txtt_loose) AND (bb < txbb_sr OR tt < txtt_sr)
+                i.e. loose-pass with the SR-pass vetoed out -> orthogonal to the SR.
+      CR-fail = bb < txbb_loose OR tt < txtt_loose  (anti-tag below the loose cuts)
+
+    ``bb_disc`` must already be the event-branch name (``bbFatJet...``, not ``ak8...``).
+    Both regions carry ``signal=False`` so the CR is NOT blinded (we want to see data
+    across the full mass range). Taking explicit loose values keeps this reusable by the
+    yield-scan tooling.
+    """
+    tt_disc = _tt_disc_key(channel, signal, use_ParT)
+
+    base = {
+        "bbFatJetPt": [250, CUT_MAX_VAL],
+        "ttFatJetPt": [200, CUT_MAX_VAL],
+    }
+    # tt-mass window is only applied on the ParT path in the SR; mirror that here.
+    if use_ParT:
+        base[channel.tt_mass_cut[0]] = channel.tt_mass_cut[1]
+
+    pass_cuts = {
+        **base,
+        bb_disc: [txbb_loose, CUT_MAX_VAL],
+        tt_disc: [txtt_loose, CUT_MAX_VAL],
+        # SR-pass veto (OR): bb < txbb_sr OR tt < txtt_sr
+        f"{bb_disc}+{tt_disc}": [[-CUT_MAX_VAL, txbb_sr], [-CUT_MAX_VAL, txtt_sr]],
+    }
+    fail_cuts = {
+        **base,
+        # anti-tag below loose (OR): bb < txbb_loose OR tt < txtt_loose
+        f"{bb_disc}+{tt_disc}": [[-CUT_MAX_VAL, txbb_loose], [-CUT_MAX_VAL, txtt_loose]],
+    }
+
+    return {
+        "pass": Region(cuts=pass_cuts, signal=False, label="Pass CR"),
+        "fail": Region(cuts=fail_cuts, signal=False, label="Fail CR"),
+    }

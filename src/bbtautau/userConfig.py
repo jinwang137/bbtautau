@@ -98,6 +98,13 @@ CHANNEL_ORDERING = ["hh", "hm", "he"]  # order of applying selection and vetoes
 SIGNAL_ORDERING = ["ggfbbtt", "vbfbbtt"]  # order of applying selection and vetoes
 
 
+CR_LOOSE_CUTS: dict[str, dict[str, float]] = {
+    "hh": {"txbb": 0.5, "txtt": 0.5},  # SR: txbb=0.91, txtt_BDT=0.996
+    "hm": {"txbb": 0.5, "txtt": 0.5},  # SR: txbb=0.85, txtt_BDT=0.8
+    "he": {"txbb": 0.5, "txtt": 0.5},  # SR: txbb=0.91, txtt_BDT=0.9918
+}
+
+
 # Working point bin edges for tt GloParT discriminants
 # Determine using the plot_cuts_hist.py script
 
