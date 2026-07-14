@@ -134,6 +134,7 @@ class Analyser:
         dataMinusSimABCD=False,
         showNonDataDrivenPortion=True,
         compute_ROC_metrics=False,
+        tt_glopart_cut: float | None = None,
     ):
         """Initialize Analyser with support for multiple signals."""
         self.sr_config = sr_config
@@ -143,6 +144,11 @@ class Analyser:
         self.tt_pres = tt_pres
         self.at_inference = at_inference
         self.use_ParT = use_ParT
+
+        # Extra fixed cut on the tt GloParT tagger, applied on top of the tt
+        # discriminant being optimized (BDT or ParT) and the bb discriminant.
+        self.tt_glopart_cut = tt_glopart_cut
+        self.extra_tt_disc_name = f"ttFatJetParTX{CHANNELS[sr_config.channel].tagger_label}vsQCDTop"
 
         self.llsl_weight = llsl_weight
         self.dataMinusSimABCD = dataMinusSimABCD
@@ -466,6 +472,11 @@ class Analyser:
             ),
         }
 
+        if self.tt_glopart_cut is not None:
+            base_vars["txtts_extra"] = self._extract_var_with_cuts(
+                self.extra_tt_disc_name, base_presel_cuts, concatenate_samples=sig_vs_bkg_groups
+            )
+
         # Extract veto discriminant vars
         base_veto_disc_vars = {}
         if self.sr_config.veto_regions:
@@ -509,9 +520,12 @@ class Analyser:
         self.sideband_cuts = copy.deepcopy(self._base_sideband_cuts)
 
     def _pass_cuts(self, group_name, txbbcut, txttcut):
-        return (self.sensitivity_vars["txbbs"][group_name] > txbbcut) & (
+        cuts = (self.sensitivity_vars["txbbs"][group_name] > txbbcut) & (
             self.sensitivity_vars["txtts"][group_name] > txttcut
         )
+        if self.tt_glopart_cut is not None:
+            cuts &= self.sensitivity_vars["txtts_extra"][group_name] > self.tt_glopart_cut
+        return cuts
 
     def compute_sig_bkg_abcd(self, txbbcut, txttcut):
         """Compute signal and background in ABCD regions, after significant cleanup."""
@@ -725,6 +739,7 @@ class Analyser:
         results["channel"] = self.channel.key
         results["years"] = "_".join(self.years)
         results["eval_bmin"] = bmin
+        results["tt_glopart_cut"] = self.tt_glopart_cut
 
         # Print summary
         self._print_evaluation_summary(results, txbbcut, txttcut)
@@ -741,6 +756,8 @@ class Analyser:
         print(f"Evaluation Results for {self.region_name} / {self.channel.key}")
         print(f"{'='*60}")
         print(f"Cuts: txbb > {txbbcut:.4f}, txtt > {txttcut:.4f}")
+        if self.tt_glopart_cut is not None:
+            print(f"Extra cut: {self.extra_tt_disc_name} > {self.tt_glopart_cut:.4f}")
         print(f"Signal yield: {results['sig_pass']:.2f}")
         print(f"Signal efficiency: {results['sig_eff']:.4f}")
         print(f"Background (ABCD): {results['bkg_ABCD']:.2f}")
@@ -1078,7 +1095,7 @@ class Analyser:
             b_min_vals: List of B_min values to optimize
         """
         if b_min_vals is None:
-            b_min_vals = [1, 10] if self.test_mode else DEFAULT_BMIN_VALUES
+            b_min_vals = [1, 10, 12] if self.test_mode else DEFAULT_BMIN_VALUES
 
         if self.test_mode:
             gridlims = (0.3, 1) if use_thresholds else (0.2, 0.9)
@@ -1355,6 +1372,7 @@ def analyse_channel(
     outfile=None,
     dataMinusSimABCD=False,
     showNonDataDrivenPortion=True,
+    tt_glopart_cut=None,
 ):
     """
     Analyse a given signal region configuration for a given channel.
@@ -1365,11 +1383,16 @@ def analyse_channel(
         outfile: Path to output CSV file (for "evaluate" action)
         dataMinusSimABCD: Use enhanced ABCD method (subtract simulated non-QCD)
         showNonDataDrivenPortion: Include non-QCD background in results
+        tt_glopart_cut: Extra fixed cut on the tt GloParT tagger, applied on top of
+            the tt discriminant being optimized (BDT or ParT) and the bb discriminant.
+            Only respected by the "sensitivity" and "evaluate" actions.
     """
 
     print(
         f"Processing configuration: {sr_config.name} for channel: {sr_config.channel}. Test mode: {test_mode}."
     )
+    if tt_glopart_cut is not None:
+        print(f"Extra tt GloParT cut: {tt_glopart_cut}")
 
     # Create analyser with all signals (data and BDT predictions loaded once)
     analyser = Analyser(
@@ -1379,6 +1402,7 @@ def analyse_channel(
         tt_pres=tt_pres,
         use_ParT=use_ParT,
         at_inference=at_inference,
+        tt_glopart_cut=tt_glopart_cut,
         llsl_weight=llsl_weight,
         plot_dir=plot_dir,
         dataMinusSimABCD=dataMinusSimABCD,
@@ -1420,6 +1444,7 @@ def get_plot_dir(
     overlapping_channels: bool,
     sr_config: SRConfig,
     ggf_modelname: str | None = None,
+    tt_glopart_cut: float | None = None,
 ):
 
     if test_mode:
@@ -1430,6 +1455,8 @@ def get_plot_dir(
         test_dir = "full_presel"
 
     disc_tag = "ParT" if use_ParT else ggf_modelname if ggf_modelname else "BDT"
+    if tt_glopart_cut is not None:
+        disc_tag += f"_ttglopart{tt_glopart_cut:.2f}"
 
     tag = f"{disc_tag}/"
     tag += "do_vbf/" if do_vbf else "ggf_only/"
@@ -1485,6 +1512,7 @@ def main(args):
             additional_samples=additional_samples,
             at_inference=args.at_inference,
             unbiased_mc_eval=args.unbiased_mc_eval,
+            restrict_signal_to_channel_gen=args.gen_split,
         )
 
         channel_regions: list[SRConfig] = []  # within current channel (overlapping mode)
@@ -1516,6 +1544,7 @@ def main(args):
                 args.overlapping_channels,
                 sr_config,
                 ggf_modelname=args.ggf_modelname,
+                tt_glopart_cut=args.tt_glopart_cut,
             )
             plot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1533,6 +1562,7 @@ def main(args):
                 outfile=args.outfile,
                 dataMinusSimABCD=args.dataMinusSimABCD,
                 showNonDataDrivenPortion=args.showNonDataDrivenPortion,
+                tt_glopart_cut=args.tt_glopart_cut,
             )
 
             # Register for future vetoes (key includes channel to avoid overwrites)
@@ -1669,6 +1699,19 @@ Examples:
         help="Optimize for sum of SM signals (ggF+VBF) instead of single signal",
     )
     sr_group.add_argument(
+        "--gen-split",
+        action="store_true",
+        default=False,
+        help=(
+            "Legacy behavior: restrict each channel's signal sample to events whose gen-truth "
+            "tau decay mode matches the channel (GenTau<channel>). Default (False) instead loads "
+            "the full, gen-truth-unsplit signal sample per channel, so channel membership is "
+            "decided purely by reco-level SR cuts + the existing cross-channel veto chain, same "
+            "as data/background -- signal migrating across channels at reco level is neither "
+            "lost nor invisible. Pass --gen-split to recover the old behavior for comparison."
+        ),
+    )
+    sr_group.add_argument(
         "--do-vbf",
         action="store_true",
         default=False,
@@ -1734,6 +1777,18 @@ Examples:
         default="bbFatJetParTXbbvsQCDTop",
         choices=["bbFatJetParTXbbvsQCD", "bbFatJetParTXbbvsQCDTop", "bbFatJetPNetXbbvsQCDLegacy"],
         help="bb discriminator variable",
+    )
+    disc_group.add_argument(
+        "--tt-glopart-cut",
+        type=float,
+        default=None,
+        help=(
+            "Extra fixed cut on the tt GloParT tagger "
+            "(ttFatJetParTX<channel>vsQCDTop), applied on top of --bb-disc and the tt "
+            "discriminant being optimized (BDT or ParT, per --use-ParT). Useful to test "
+            "combining a BDT cut with an additional GloParT cut. Only respected by the "
+            "'sensitivity' and 'evaluate' actions (default: None, i.e. no extra cut)."
+        ),
     )
     disc_group.add_argument(
         "--compute-ROC-metrics",
