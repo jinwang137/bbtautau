@@ -46,7 +46,7 @@ control_plot_vars = (
     ]
     + [
         ShapeVar(
-            var=f"{jet}FatJetCAglobalParT_massVisApplied_with_delta_axis_merged",
+            var=f"{jet}FatJetCAglobalParT_massVisApplied",
             label=rf"$m^{{{jlabel}}}$ [GeV]",
             bins=[20, 50, 300],
         )
@@ -222,6 +222,7 @@ def main(args: argparse.Namespace):
         models=models,
         cutflow=True,
         load_bgs=True,
+        restrict_signal_to_channel_gen=args.gen_split,
     )
 
     # Keep dictionary structure consistent with legacy code, working out templates one year at a time
@@ -506,6 +507,7 @@ def run_control_plots(args: argparse.Namespace) -> None:
         models=models,
         cutflow=False,
         load_bgs=True,
+        restrict_signal_to_channel_gen=args.gen_split,
     )
 
     if len(years) > 1:
@@ -726,6 +728,15 @@ def get_templates(
         # set up samples
         hist_samples = list(events_dict.keys())
 
+        # Extra, diagnostic-only categories: split each signal sample's (already
+        # reco-selected) events by true tau decay mode, so we can inspect whether
+        # cross-channel-migrated/contaminating signal has a different shape. These are
+        # *not* looked at by CreateDatacard.py (mc_samples/sig_keys there only ever
+        # reference the base `skey` names below), so they can't affect the fit -- purely
+        # additive bookkeeping. See "Signal channel splitting" in CLAUDE.md.
+        for sig_key in sig_keys:
+            hist_samples += [f"{sig_key}__true{origin}" for origin in putils.TRUTH_ORIGINS]
+
         # if not do_jshift:
         #     # add all weight-based variations to histogram axis
         #     for shift in ["down", "up"]:
@@ -764,6 +775,20 @@ def get_templates(
 
             # breakpoint()
             h.fill(Sample=skey, **fill_data, weight=weight)
+
+            if skey in sig_keys:
+                # diagnostic truth-origin breakdown (nominal weight only, no shape
+                # systematics) -- see hist_samples note above
+                for origin, mask in putils.truth_origin_masks(sample).items():
+                    sub_sample = sample.copy_from_selection(mask)
+                    if not len(sub_sample.events):
+                        continue
+                    sub_fill_data = utils.get_fill_data(sub_sample, shape_vars)
+                    h.fill(
+                        Sample=f"{skey}__true{origin}",
+                        **sub_fill_data,
+                        weight=sub_sample.get_var(weight_key),
+                    )
 
             if not do_jshift:
                 # add weight variations
@@ -1078,6 +1103,17 @@ def parse_args(parser=None):
     add_bool_arg(parser, "read-sig-samples", "read signal samples from directory", default=False)
     add_bool_arg(parser, "data", "include data", default=True)
     add_bool_arg(parser, "filters", "apply filters", default=True)
+    add_bool_arg(
+        parser,
+        "gen-split",
+        "legacy behavior: restrict each channel's signal sample to events whose gen-truth tau "
+        "decay mode matches the channel (GenTau<channel>). Default (False) instead loads the "
+        "full, gen-truth-unsplit signal sample per channel, so channel membership is decided "
+        "purely by reco-level SR cuts + the existing cross-channel veto chain, same as "
+        "data/background -- signal migrating across channels at reco level is neither lost nor "
+        "invisible. Pass --gen-split to recover the old behavior for comparison",
+        default=False,
+    )
 
     parser.add_argument(
         "--control-plot-vars",
