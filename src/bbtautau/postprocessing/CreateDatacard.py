@@ -43,6 +43,7 @@ from bbtautau.postprocessing.datacardHelpers import (
 from bbtautau.postprocessing.Samples import (
     CHANNELS,
     SIGNALS,
+    SM_SIGNALS,
     sig_keys_ggf,
     sig_keys_vbf,
     single_h_keys,
@@ -96,7 +97,7 @@ add_bool_arg(parser, "only-sm", "Only add SM HH samples", default=False)
 
 parser.add_argument(
     "--sigs",
-    default=SIGNALS,
+    default=SM_SIGNALS,
     nargs="*",
     type=str,
     help="specify signals",
