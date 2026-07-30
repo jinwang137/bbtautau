@@ -223,6 +223,7 @@ def get_columns(
     lowercase_jetaway: bool = False,
     vbf: bool = True,
     all_hlts: bool = False,
+    gen_leptons=False,
 ):
     """
     Build per-sample-type column lists for :func:`load_samples`.
@@ -378,6 +379,17 @@ def get_columns(
         ("GenHiggsChildren", 2),
     ]
 
+    if gen_leptons:
+        columns_signal += [
+            ("GenTauLepEta", 2),
+            ("GenTauLepPhi", 2),
+            ("GenTauLepMass", 2),
+            ("GenTauLepPt", 2),
+            ("GenTauLepId", 2),
+            ("GenTauDecay", 2),
+            ("GenTauNProng", 2),
+        ]
+
     columns = {
         "data": utils.format_columns(columns_data),
         "signal": utils.format_columns(columns_signal),
@@ -402,6 +414,7 @@ def load_samples(
     loaded_samples: bool = True,
     multithread: bool = True,
     loader_n_jobs: int | None = None,
+    restrict_signal_to_channel_gen: bool = True,
 ) -> dict[str, LoadedSample | pd.DataFrame]:
     """
     Loads and preprocesses physics event samples for a given year and analysis channel.
@@ -436,6 +449,16 @@ def load_samples(
         If True, loads only the "ggf" signal samples, excluding "vbf" (default: False). Used for specialized studies.
     loaded_samples : bool, optional
         If True, returns results as `LoadedSample` objects. If False, returns plain DataFrames (deprecated).
+    restrict_signal_to_channel_gen : bool, optional
+        If True (default), each `f"{signal}{channel.key}"` sample is restricted to events whose
+        gen-truth tau decay mode matches that channel (`GenTau{channel.key}`) -- the historical
+        behavior, appropriate for tagger training/characterization against ground truth (e.g.
+        `bdt.py`, ROC studies). If False, each `f"{signal}{channel.key}"` sample instead gets the
+        *full*, unsplit signal sample (all decay modes), so that channel membership is determined
+        purely by reco-level selection + cross-channel vetoes downstream -- same treatment as
+        data/background. Used by the final-template and sensitivity-optimization paths
+        (`postprocessing.py`, `SensitivityStudy.py`) to avoid losing/hiding signal that migrates
+        across channels at reco level. See untracked_utils channel migration diagnostic notebook.
 
     Returns
     -------
@@ -580,16 +603,25 @@ def load_samples(
         for channel in channels:
             if not loaded_samples:
                 # quick fix due to old naming still in samples
-                events_dict[f"{signal}{channel.key}"] = events_dict[signal][
-                    events_dict[signal][f"GenTau{channel.key}"][0]
-                ]
+                if restrict_signal_to_channel_gen:
+                    events_dict[f"{signal}{channel.key}"] = events_dict[signal][
+                        events_dict[signal][f"GenTau{channel.key}"][0]
+                    ]
+                else:
+                    events_dict[f"{signal}{channel.key}"] = events_dict[signal].copy()
                 del events_dict[signal]
             else:
+                if restrict_signal_to_channel_gen:
+                    channel_events = events_dict[signal].events[
+                        events_dict[signal].get_var(f"GenTau{channel.key}")
+                    ]
+                else:
+                    # Full, unsplit signal sample: channel membership is decided purely by
+                    # reco-level selection + cross-channel vetoes downstream, same as data/bg.
+                    channel_events = events_dict[signal].events.copy()
                 events_dict[f"{signal}{channel.key}"] = LoadedSample(
                     sample=Samples.SAMPLES[f"{signal}{channel.key}"],
-                    events=events_dict[signal].events[
-                        events_dict[signal].get_var(f"GenTau{channel.key}")
-                    ],
+                    events=channel_events,
                 )
         del events_dict[signal]
 
@@ -732,6 +764,28 @@ def delete_columns(
                 )
             )
     return events_dict
+
+
+TRUTH_ORIGINS = [*CHANNELS, "other"]
+
+
+def truth_origin_masks(sample: LoadedSample) -> dict[str, np.ndarray]:
+    """Boolean masks splitting a signal ``LoadedSample`` by true tau decay mode, keyed by
+    ``TRUTH_ORIGINS`` (``"hh"``/``"hm"``/``"he"`` from ``GenTau<channel>``, plus ``"other"``
+    for events matching none of them, e.g. ee/emu/mumu decay topologies).
+
+    Diagnostic only: used to *label* already reco-selected signal events for shape-effect
+    inspection (see the channel-migration notes in CLAUDE.md), not to restrict which events
+    are candidates for a channel's SR.
+    """
+    masks = {}
+    any_match = np.zeros(len(sample.events), dtype=bool)
+    for ch_key in CHANNELS:
+        mask = sample.get_var(f"GenTau{ch_key}").astype(bool)
+        masks[ch_key] = mask
+        any_match |= mask
+    masks["other"] = ~any_match
+    return masks
 
 
 def bbtautau_assignment(
@@ -1179,8 +1233,6 @@ def load_data_channel(
         derive_vbf_variables(events_dict[year])
 
     # Load or compute BDT predictions for every requested model.
-    # Each model writes signal-specific columns (e.g. BDTggfbb{ch}vsAll, BDTvbfbb{ch}vsAll)
-    # so there is no overwrite risk between models. The caller controls which models to evaluate.
     if models is not None:
         for model in models:
             if model not in BDT_CONFIG:
@@ -1219,6 +1271,7 @@ def singleVarHist(
     bbtt_masks: dict[str, pd.DataFrame] = None,
     weight_key: str = "finalWeight",
     selection: dict | None = None,
+    transform: callable | None = None,
 ) -> Hist:
     """
     Makes and fills a histogram for variable `var` using data in the `events` dict.
@@ -1232,6 +1285,8 @@ def singleVarHist(
           Bins in this region will be set to 0 for data.
         selection (dict, optional): if performing a selection first, dict of boolean arrays for
           each sample
+        transform (callable, optional): if given, applied to the raw variable values before
+          filling. The ``shape_var`` axis must already be defined over the transformed range.
     """
 
     if not isinstance(next(iter(events_dict.values())), LoadedSample):
@@ -1261,6 +1316,9 @@ def singleVarHist(
 
         fill_data = {var: sample.get_var(fill_var)}
         weight = sample.get_var(weight_key)
+
+        if transform is not None and fill_data[var] is not None:
+            fill_data[var] = transform(fill_data[var])
 
         if selection is not None:
             sel = selection[skey]

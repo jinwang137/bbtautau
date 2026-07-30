@@ -573,6 +573,11 @@ def build_hist_for_sample_with_cuts(
         cut_var: Variable name on which cuts are applied
     """
     cut_labels = list(cuts_dict.keys())
+
+    def _neglog_transform(x, eps: float = MIN_LOG):
+        """x -> -log(1 - x + eps); eps only for numerical stability near x = 1."""
+        return -np.log(np.maximum(1.0 - x + eps, 1e-12))
+
     h = Hist(
         hist.axis.StrCategory(cut_labels, name="cut_level"),
         hist.axis.Regular(bins, x_min, x_max, name=varname),
@@ -604,7 +609,7 @@ def build_hist_for_sample_with_cuts(
 
     for label, threshold in cuts_dict.items():
         sel = xcut >= threshold
-        vals_sel = vals[sel]
+        vals_sel = _neglog_transform(vals[sel])
         weight_sel = weight[sel]
 
         print(
@@ -1436,7 +1441,7 @@ def run_cuts_hist_mode(args, channel: Channel, channel_name: str, years: list[st
     if args.cut_var is not None:
         cut_var = args.cut_var
     elif args.use_bdt:
-        cut_var = f"BDTScore{taukey}vsAll"
+        cut_var = f"BDTggfbb{taukey}vsAll"
     else:
         cut_var = f"ttFatJetParTX{taukey}vsQCDTop"
     print(f"Applying cuts on variable: {cut_var}")
@@ -1488,8 +1493,8 @@ def run_cuts_hist_mode(args, channel: Channel, channel_name: str, years: list[st
         model_dir=Path(args.model_dir),
         bdt_eval_dir=Path(args.bdt_eval_dir),
         at_inference=args.at_inference,
-        load_bgs=True,  # Load backgrounds for plotting
-        load_data=True,  # Load data for plotting
+        load_bgs=False,  # Load backgrounds for plotting
+        load_data=False,  # Load data for plotting
     )
 
     # Merge events across all years for plotting
@@ -1555,6 +1560,7 @@ def run_cuts_hist_mode(args, channel: Channel, channel_name: str, years: list[st
                     cmslabel="Work in progress",
                     name=str(save_path),
                     show=False,
+                    log=True,
                 )
                 print(f"Saved {save_path}")
 
@@ -1729,7 +1735,7 @@ def main():
     parser.add_argument(
         "--thresholds",
         nargs="+",
-        default=[0.1, 0.3, 0.5, 0.8, 0.9, 0.95],
+        default=[0.8, 0.9, 0.95, 0.98],
         help="Thresholds to plot (required for --cuts-hist)",
     )
     parser.add_argument(
@@ -1777,7 +1783,7 @@ def main():
         default=2,
         help="Step size for selecting Bmin columns (default: 2, only for --cuts-hist)",
     )
-    parser.add_argument("--modelname", type=str, default="29July25_loweta_lowreg")
+    parser.add_argument("--modelname", type=str, default="May4_optimized_ggf")
     parser.add_argument(
         "--model-dir",
         type=str,

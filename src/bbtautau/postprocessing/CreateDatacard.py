@@ -43,6 +43,7 @@ from bbtautau.postprocessing.datacardHelpers import (
 from bbtautau.postprocessing.Samples import (
     CHANNELS,
     SIGNALS,
+    SM_SIGNALS,
     sig_keys_ggf,
     sig_keys_vbf,
     single_h_keys,
@@ -96,7 +97,7 @@ add_bool_arg(parser, "only-sm", "Only add SM HH samples", default=False)
 
 parser.add_argument(
     "--sigs",
-    default=SIGNALS,
+    default=SM_SIGNALS,
     nargs="*",
     type=str,
     help="specify signals",
@@ -149,7 +150,7 @@ parser.add_argument(
     "--year",
     type=str,
     default="2022-2023",
-    choices=hh_years + ["2022-2023"],
+    choices=hh_years + ["2022-2023"] + ["all"],
     help="years to make datacards for",
 )
 add_bool_arg(parser, "dd-dyjets", "use data-driven DY jets estimate", default=True)
@@ -266,7 +267,13 @@ for key in all_sig_keys:
 all_mc = list(mc_samples.keys())
 
 
-years = hh_years if args.year == "2022-2023" else [args.year]
+if args.year == "all":
+    years = hh_years
+elif args.year == "2022-2023":
+    years = [year for year in hh_years if year != "2024"]
+else:
+    years = [args.year]
+
 full_lumi = LUMI[args.year]
 
 # jmsr_keys = sig_keys + ["vhtobb", "zz", "nozzdiboson"]

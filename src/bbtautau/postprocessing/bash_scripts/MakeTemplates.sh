@@ -21,13 +21,13 @@
 
 years=("2022" "2022EE" "2023" "2023BPix")
 channels=("hh" "hm" "he")
-bmin_values=(5 9 10 11 12)  # Can be overridden with --bmin
+bmin_values=(5 9 10 11 12 15)  # Can be overridden with --bmin
 
 # Repo root (parent of src/); works for any user/checkout path
 MAIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 SCRIPT_DIR="${MAIN_DIR}/src/bbtautau/postprocessing"
 DATA_DIR="/ceph/cms/store/user/lumori/bbtautau/skimmer/26Mar5All_v12_private_signal"
-SENSITIVITY_DIR="${MAIN_DIR}/plots/SensitivityStudy/2026-05-08/"
+SENSITIVITY_DIR="${MAIN_DIR}/plots/SensitivityStudy/2026-06-16/"
 COMBINED_SIGNALS="separate_signals"
 TAG=""
 USE_PART=0
@@ -35,6 +35,7 @@ DO_VBF=0
 USE_SENSITIVITY_DIR=1  # Flag to control --sensitivity-dir argument (default: on)
 TEST_MODE=0
 TT_PRES=0
+CONTROL_REGION=0  # Build CR (annulus) templates for QCD+DY validation
 GGF_MODEL="May4_optimized_ggf"
 #"19oct25_ak4away_ggfbbtt"
 VBF_MODEL="May4_optimized_vbfk2v0"
@@ -52,6 +53,7 @@ show_help() {
     echo "  --channel CHANNEL      Channel to run on (default: all channels)"
     echo "  --use-part             Use ParT tagger instead of BDT"
     echo "  --do-vbf               Include VBF signal regions"
+    echo "  --control-region       Build CR (annulus) templates for QCD+DY validation"
     echo "  --sensitivity-dir DIR  Directory for --sensitivity-dir (default: /home/users/lumori/bbtautau/plots/SensitivityStudy/2025-12-27/)"
     echo "  --no-sensitivity-dir   Disable the --sensitivity-dir argument (default: enabled)"
     echo "  --test-mode            Run in test mode (reduced data size)"
@@ -125,6 +127,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --tt-pres)
             TT_PRES=1
+            shift
+            ;;
+        --control-region)
+            CONTROL_REGION=1
             shift
             ;;
         --ggf-model)
@@ -223,6 +229,11 @@ do
         # Add --tt-pres if enabled
         if [[ $TT_PRES -eq 1 ]]; then
             cmd+=(--tt-pres)
+        fi
+
+        # Add --control-region if enabled (CR annulus templates)
+        if [[ $CONTROL_REGION -eq 1 ]]; then
+            cmd+=(--control-region)
         fi
 
         # Add --combined-signals when set (non-empty string)

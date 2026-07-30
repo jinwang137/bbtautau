@@ -26,7 +26,7 @@ from hist import Hist
 import bbtautau.postprocessing.utils as putils
 from bbtautau.postprocessing import Regions, Samples, plotting
 from bbtautau.postprocessing.bbtautau_types import Channel, LoadedSample
-from bbtautau.postprocessing.Samples import CHANNELS, SAMPLES, SIGNALS
+from bbtautau.postprocessing.Samples import CHANNELS, SAMPLES, SIGNALS, SM_SIGNALS
 from bbtautau.postprocessing.utils import load_data_channel
 from bbtautau.userConfig import (
     CHANNEL_ORDERING,
@@ -46,7 +46,7 @@ control_plot_vars = (
     ]
     + [
         ShapeVar(
-            var=f"{jet}FatJetCAglobalParT_massVisApplied_with_delta_axis_merged",
+            var=f"{jet}FatJetCAglobalParT_massVisApplied",
             label=rf"$m^{{{jlabel}}}$ [GeV]",
             bins=[20, 50, 300],
         )
@@ -152,6 +152,17 @@ control_plot_vars = (
     + [ShapeVar(var="nBoostedTaus", label=r"Number of Boosted Taus", bins=[3, 0, 3])]
 )
 
+# Control-plot variables whose values pile up near 1 (discriminator scores) are nicer to look
+# at under x -> -log(1 - x + eps). Edit this set to control which vars get transformed.
+TRANSFORM_EPS = 1e-4
+TRANSFORM_VARS = {sv.var for sv in control_plot_vars if "vsQCD" in sv.var}
+
+
+def _neglog_transform(x, eps: float = TRANSFORM_EPS):
+    """x -> -log(1 - x + eps); eps only for numerical stability near x = 1."""
+    return -np.log(np.maximum(1.0 - x + eps, 1e-12))
+
+
 # fitting on bb regressed mass
 shape_vars = [
     ShapeVar(
@@ -211,6 +222,7 @@ def main(args: argparse.Namespace):
         models=models,
         cutflow=True,
         load_bgs=True,
+        restrict_signal_to_channel_gen=args.gen_split,
     )
 
     # Keep dictionary structure consistent with legacy code, working out templates one year at a time
@@ -248,15 +260,22 @@ def main(args: argparse.Namespace):
 
         for signal_key in signal_regions:
 
-            # Create bmin-specific directories
+            # Create bmin-specific directories ("control" subdir keeps CR templates
+            # from colliding with the nominal SR ones).
+            cr_seg = "control" if args.control_region else ""
             template_dir_bmin = (
                 args.template_dir
+                / cr_seg
                 / f"bmin_{bmin}"
                 / signal_key
                 / (CHANNEL.key if args.template_dir else "")
             )
             plot_dir_bmin = (
-                args.plot_dir / f"bmin_{bmin}" / signal_key / (CHANNEL.key if args.plot_dir else "")
+                args.plot_dir
+                / cr_seg
+                / f"bmin_{bmin}"
+                / signal_key
+                / (CHANNEL.key if args.plot_dir else "")
             )
 
             if template_dir_bmin:
@@ -302,6 +321,7 @@ def main(args: argparse.Namespace):
                     "overlapping_channels": args.overlapping_channels,
                     "sensitivity_disc_tag": args.sensitivity_disc_tag,
                     "ggf_modelname": args.ggf_modelname,
+                    "control_region": args.control_region,
                 },
             )
 
@@ -378,12 +398,30 @@ def control_plots(
 
     for shape_var in control_plot_vars:
         if shape_var.var not in hists:
+            # For flagged vars, fill -log(1 - x + eps) over a matching (transformed) axis so that
+            # ratioHistPlot — which just plots whatever axis the Hist carries — shows the stretched
+            # view. The hist stays keyed by the original var name.
+            if shape_var.var in TRANSFORM_VARS:
+                edges = shape_var.axis.edges
+                tlo, thi = _neglog_transform(np.array([edges[0], edges[-1]]))
+                hist_shape_var = ShapeVar(
+                    var=shape_var.var,
+                    label=shape_var.label + r" [$-\log(1-x+\epsilon)$]",
+                    bins=[shape_var.axis.size, float(tlo), float(thi)],
+                    significance_dir=shape_var.significance_dir,
+                )
+                transform = _neglog_transform
+            else:
+                hist_shape_var = shape_var
+                transform = None
+
             hists[shape_var.var] = putils.singleVarHist(
                 events_dict,
-                shape_var,
+                hist_shape_var,
                 channel,
                 weight_key=weight_key,
                 selection=selection,
+                transform=transform,
             )
 
     ylim = (np.max([h.values() for h in hists.values()]) * 1.05) if same_ylim else None
@@ -417,7 +455,8 @@ def control_plots(
                 cutlabel=cutlabel,
                 show=show,
                 log=log,
-                ylim=pylim if not log else 1e15,
+                plot_data=False,
+                ylim=pylim if not log else 1e1,
                 plot_ratio=plot_ratio,
                 cmslabel="Work in progress",
                 leg_args={"fontsize": 18},
@@ -441,11 +480,11 @@ def run_control_plots(args: argparse.Namespace) -> None:
     elif not isinstance(args.years, list):
         raise ValueError("Cannot process multiple years at once other than 'all'")
     else:
-        years = [args.years]
+        years = args.years
         year_label = args.years
 
     if args.sigs is None:
-        args.sigs = SIGNALS
+        args.sigs = SM_SIGNALS
 
     if args.bgs is None:
         args.bgs = {bkey: b for bkey, b in SAMPLES.items() if b.get_type() == "bg"}
@@ -456,8 +495,8 @@ def run_control_plots(args: argparse.Namespace) -> None:
     CHANNEL = CHANNELS[args.channel]
 
     models = None
-    # if not args.use_ParT:
-    #     models = [args.ggf_modelname] + ([args.vbf_modelname] if args.do_vbf else [])
+    if not args.use_ParT:
+        models = [args.ggf_modelname] + ([args.vbf_modelname] if args.do_vbf else [])
 
     events_dict = load_data_channel(
         years=years,
@@ -468,6 +507,7 @@ def run_control_plots(args: argparse.Namespace) -> None:
         models=models,
         cutflow=False,
         load_bgs=True,
+        restrict_signal_to_channel_gen=args.gen_split,
     )
 
     if len(years) > 1:
@@ -495,7 +535,46 @@ def run_control_plots(args: argparse.Namespace) -> None:
     else:
         selected_vars = list(control_plot_vars)
 
-    # For now: inclusive control plots, no additional pass/fail selections.
+    # Default: inclusive control plots. With --sr, apply the SR pass cut (resolved from --bmin).
+    selection = None
+    cutstr = ""
+    cutlabel = "Inclusive"
+    title = f"{CHANNEL.label} inclusive control plots"
+
+    if args.sr:
+        # Resolve the SR pass region for the ggf signal and turn its cuts into a per-sample mask.
+        bmin = args.bmin[0] if isinstance(args.bmin, list) else args.bmin
+        if isinstance(args.bmin, list) and len(args.bmin) > 1:
+            print(f"--sr: multiple --bmin values given {args.bmin}; using the first ({bmin}).")
+        if args.sensitivity_dir is None:
+            print(
+                "--sr: --sensitivity-dir not set; SR cuts fall back to Samples.py defaults and "
+                "--bmin has no effect."
+            )
+
+        signal = "ggfbbtt"
+        selection_regions = Regions.get_selection_regions(
+            signal,
+            CHANNEL,
+            sensitivity_dir=args.sensitivity_dir,
+            bmin=bmin,
+            combined_signals=args.combined_signals,
+            use_ParT=args.use_ParT,
+            do_vbf=args.do_vbf,
+            bb_disc=args.bb_disc,
+            test_mode=args.test_mode,
+            tt_pres=args.tt_pres,
+            overlapping_channels=args.overlapping_channels,
+            sensitivity_disc_tag=args.sensitivity_disc_tag,
+            ggf_modelname=args.ggf_modelname,
+        )
+        pass_region = selection_regions["pass"]
+        selection, _ = utils.make_selection(pass_region.cuts, events_dict)
+
+        cutstr = f"sr_bmin{bmin}_"
+        cutlabel = f"SR pass (Bmin={bmin})"
+        title = f"{CHANNEL.label} SR pass control plots (Bmin={bmin})"
+
     plot_dir_cp = args.plot_dir
     plot_dir_cp.mkdir(parents=True, exist_ok=True)
 
@@ -507,10 +586,10 @@ def run_control_plots(args: argparse.Namespace) -> None:
         control_plot_vars=selected_vars,
         plot_dir=plot_dir_cp,
         year=year_label,  # very inefficient rn
-        selection=None,
-        cutstr="",
-        cutlabel="Inclusive",
-        title=f"{CHANNEL.label} inclusive control plots",
+        selection=selection,
+        cutstr=cutstr,
+        cutlabel=cutlabel,
+        title=title,
         combine_pdf=True,
         plot_ratio=True,
         show=False,
@@ -577,21 +656,26 @@ def get_templates(
     # do TXbb SFs + uncs. for signals and Hbb samples only
     # txbb_samples = sig_keys + [key for key in bg_keys if key in hbb_bg_keys]
 
+    # Inter-channel/-signal vetoes enforce SR orthogonality; the CR is a per-channel
+    # validation region, so skip them when building control-region templates.
+    control_region = bool((selection_region_kwargs or {}).get("control_region", False))
+
     vetoes = []
     found = False
     # veto all channels/signals earlier in the ordering than the current one
-    for channel_iter in CHANNEL_ORDERING:
-        for signal_iter in signal_regions:
-            if channel_iter == channel.key and signal_iter == signal:
-                found = True
-                break
-            vetoes.append(
-                Regions.get_selection_regions(
-                    signal_iter, CHANNELS[channel_iter], **selection_region_kwargs
+    if not control_region:
+        for channel_iter in CHANNEL_ORDERING:
+            for signal_iter in signal_regions:
+                if channel_iter == channel.key and signal_iter == signal:
+                    found = True
+                    break
+                vetoes.append(
+                    Regions.get_selection_regions(
+                        signal_iter, CHANNELS[channel_iter], **selection_region_kwargs
+                    )
                 )
-            )
-        if found:
-            break
+            if found:
+                break
 
     # Now a pass/fail region is defined for ggf and vbf. In each we will load all signal samples
     # Apply vetoes from regions that were optimized earlier in the ordering
@@ -644,6 +728,15 @@ def get_templates(
         # set up samples
         hist_samples = list(events_dict.keys())
 
+        # Extra, diagnostic-only categories: split each signal sample's (already
+        # reco-selected) events by true tau decay mode, so we can inspect whether
+        # cross-channel-migrated/contaminating signal has a different shape. These are
+        # *not* looked at by CreateDatacard.py (mc_samples/sig_keys there only ever
+        # reference the base `skey` names below), so they can't affect the fit -- purely
+        # additive bookkeeping. See "Signal channel splitting" in CLAUDE.md.
+        for sig_key in sig_keys:
+            hist_samples += [f"{sig_key}__true{origin}" for origin in putils.TRUTH_ORIGINS]
+
         # if not do_jshift:
         #     # add all weight-based variations to histogram axis
         #     for shift in ["down", "up"]:
@@ -682,6 +775,20 @@ def get_templates(
 
             # breakpoint()
             h.fill(Sample=skey, **fill_data, weight=weight)
+
+            if skey in sig_keys:
+                # diagnostic truth-origin breakdown (nominal weight only, no shape
+                # systematics) -- see hist_samples note above
+                for origin, mask in putils.truth_origin_masks(sample).items():
+                    sub_sample = sample.copy_from_selection(mask)
+                    if not len(sub_sample.events):
+                        continue
+                    sub_fill_data = utils.get_fill_data(sub_sample, shape_vars)
+                    h.fill(
+                        Sample=f"{skey}__true{origin}",
+                        **sub_fill_data,
+                        weight=sub_sample.get_var(weight_key),
+                    )
 
             if not do_jshift:
                 # add weight variations
@@ -958,6 +1065,13 @@ def parse_args(parser=None):
     )
 
     add_bool_arg(parser, "control-plots", "make control plots", default=False)
+    add_bool_arg(
+        parser,
+        "sr",
+        "for --control-plots, apply the signal-region pass cut (resolved from --bmin / "
+        "--sensitivity-dir) before plotting",
+        default=False,
+    )
 
     add_bool_arg(parser, "blinded", "blind the data in the Higgs mass window", default=True)
     add_bool_arg(parser, "templates", "save m_bb templates", default=False)
@@ -989,6 +1103,17 @@ def parse_args(parser=None):
     add_bool_arg(parser, "read-sig-samples", "read signal samples from directory", default=False)
     add_bool_arg(parser, "data", "include data", default=True)
     add_bool_arg(parser, "filters", "apply filters", default=True)
+    add_bool_arg(
+        parser,
+        "gen-split",
+        "legacy behavior: restrict each channel's signal sample to events whose gen-truth tau "
+        "decay mode matches the channel (GenTau<channel>). Default (False) instead loads the "
+        "full, gen-truth-unsplit signal sample per channel, so channel membership is decided "
+        "purely by reco-level SR cuts + the existing cross-channel veto chain, same as "
+        "data/background -- signal migrating across channels at reco level is neither lost nor "
+        "invisible. Pass --gen-split to recover the old behavior for comparison",
+        default=False,
+    )
 
     parser.add_argument(
         "--control-plot-vars",
@@ -1003,7 +1128,7 @@ def parse_args(parser=None):
     parser.add_argument(
         "--ggf-modelname",
         help="Name of the BDT model to use",
-        default="19oct25_ak4away_ggfbbtt",
+        default="May4_optimized_ggf",
         type=str,
     )
     parser.add_argument(
@@ -1013,9 +1138,17 @@ def parse_args(parser=None):
         help="Run VBF optimization first (with its own model) and veto its selection (Bmin=10) when optimizing the main signal",
     )
     parser.add_argument(
+        "--control-region",
+        action="store_true",
+        default=False,
+        help="Build CR (orthogonal annulus) templates for QCD+DY validation instead of the "
+        "nominal SR pass/fail. Loose cuts from userConfig.CR_LOOSE_CUTS; see "
+        "notes/control_region_plan.md. Templates go to a 'control' subdir; CR is unblinded.",
+    )
+    parser.add_argument(
         "--vbf-modelname",
         help="Name of the BDT model to use",
-        default="19oct25_ak4away_vbfbbtt",
+        default="May4_optimized_vbf",
         type=str,
     )
 
@@ -1095,7 +1228,7 @@ def parse_args(parser=None):
     elif args.data_dir:
         args.signal_data_dirs = [args.data_dir]
 
-    # save args in args.plot_dir and args.template_dir if they exit
+    # save args in args.plot_dir and args.template_dir if they exist
     if args.plot_dir:
         year_label = "+".join(args.years)
         base_plot_dir = Path(args.plot_dir)

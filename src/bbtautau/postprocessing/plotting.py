@@ -19,7 +19,7 @@ from boostedhh.hh_vars import data_key
 from hist import Hist
 
 from bbtautau.postprocessing.bbtautau_types import FOM, Channel
-from bbtautau.postprocessing.Samples import SAMPLES
+from bbtautau.postprocessing.Samples import CHANNELS, SAMPLES
 
 plt.style.use(hep.style.CMS)
 hep.style.use("CMS")
@@ -53,6 +53,58 @@ BG_COLOURS = {
     "zjets": "gray",
     "hbb": "beige",
 }
+
+# Diagnostic truth-decay-mode signal breakdown (see "Signal channel splitting" in CLAUDE.md).
+# `f"{sig_key}__true{origin}"` categories are nominal-only and additive to the (unchanged)
+# total `sig_key` entry -- auto-detected below and drawn as a same-colour stacked breakdown
+# under the existing total-signal step line, distinguished from backgrounds by hatch/alpha.
+TRUTH_ORIGINS = [*CHANNELS, "other"]
+TRUTH_ORIGIN_LABELS = {**{k: CHANNELS[k].label for k in CHANNELS}, "other": "other"}
+TRUTH_ORIGIN_STYLE = {
+    "hh": {"alpha": 0.55, "hatch": "//"},
+    "hm": {"alpha": 0.5, "hatch": "\\\\"},
+    "he": {"alpha": 0.45, "hatch": "xx"},
+    "other": {"alpha": 0.25, "hatch": ".."},
+}
+
+
+def _plot_truth_origin_breakdown(ax, hists: Hist, sig_keys: list[str], sig_scale_dict: dict = None):
+    """Draw, for each ``sig_key`` that has ``{sig_key}__true{origin}`` categories in ``hists``,
+    a stacked breakdown by true tau-decay-mode origin, scaled the same as the (unstacked) total
+    signal line so the stack top lines up with it. No-op if no such categories are present.
+    """
+    sample_names = set(hists.axes[0])
+    sig_scale_dict = sig_scale_dict or {}
+    edges = hists.axes[1].edges
+    drew_any = False
+
+    for i, sig_key in enumerate(sig_keys):
+        sub_keys = [
+            (origin, f"{sig_key}__true{origin}")
+            for origin in TRUTH_ORIGINS
+            if f"{sig_key}__true{origin}" in sample_names
+        ]
+        if not sub_keys:
+            continue
+
+        color = plotting.SIG_COLOURS[i % len(plotting.SIG_COLOURS)]
+        scale = sig_scale_dict.get(sig_key, 1)
+        baseline = np.zeros(len(edges) - 1)
+        for origin, sub_key in sub_keys:
+            vals = hists[sub_key, :].values() * scale
+            style = TRUTH_ORIGIN_STYLE.get(origin, {"alpha": 0.5, "hatch": None})
+            ax.stairs(
+                baseline + vals,
+                edges,
+                baseline=baseline,
+                fill=True,
+                color=color,
+                label=f"{sample_label_map.get(sig_key, sig_key)} ({TRUTH_ORIGIN_LABELS.get(origin, origin)} truth)",
+                **style,
+            )
+            baseline = baseline + vals
+        drew_any = True
+    return drew_any
 
 
 def create_blinded_histogram(hists: Hist, blind_region: list, axis=0):
@@ -145,6 +197,12 @@ def ratioHistPlot(
         axraxsax=axraxsax,
         **kwargs,
     )
+
+    # Diagnostic truth-decay-mode signal breakdown, auto-detected from `hists` (see
+    # TRUTH_ORIGINS above) -- no-op unless `__true*` categories are present. Drawn after the
+    # base plot so it needs its own legend rebuild to be included.
+    if _plot_truth_origin_breakdown(ax, plot_hists, sig_keys, kwargs.get("sig_scale_dict")):
+        ax.legend(*ax.get_legend_handles_labels(), **kwargs.get("leg_args", {"fontsize": 24}))
 
     ax.text(
         0.03,
